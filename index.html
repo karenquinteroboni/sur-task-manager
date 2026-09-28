@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SUR Task Manager</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>SUR Task Manager</h1>
+  <nav>
+    <button data-view="tablero" class="active">Tablero</button>
+    <button data-view="empresas">Empresas</button>
+    <button data-view="procesos">Procesos</button>
+  </nav>
+  <div class="spacer"></div>
+  <button id="btnExport" title="Descargar respaldo JSON">Exportar</button>
+  <button id="btnImport">Importar</button>
+  <input type="file" id="fileImport" accept=".json" hidden>
+  <button id="btnReset" class="danger" title="Vuelve a los datos del Excel">Restaurar Excel</button>
+</header>
+<main id="app"></main>
+<dialog id="dlg"></dialog>
+<script src="seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
