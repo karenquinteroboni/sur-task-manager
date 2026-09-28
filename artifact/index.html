@@ -54,6 +54,7 @@ tr.done td:not(.keep){opacity:.5}
 .tag.rep{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
 .due{font:12.5px var(--mono);white-space:nowrap}
 .due.late{color:var(--bad);font-weight:500} .due.soon{color:var(--warn)}
+.dayc{display:flex;align-items:center;gap:6px}.dayc input,.dayc select{width:auto;font-family:var(--mono);font-size:12.5px}.dayc.late input,.dayc.late select{color:var(--bad);border-color:var(--bad)}
 .due small{margin-left:6px;font-family:var(--sans)}
 select.st{font-weight:600}
 .st-Pendiente{color:var(--mut)} .st-En-curso{color:var(--accent)} .st-Bloqueada{color:var(--bad)} .st-Hecha{color:var(--ok)}
@@ -96,7 +97,7 @@ const ESTADOS = ["Pendiente","En curso","Bloqueada","Hecha"];
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 const DOW = ["","Lun","Mar","Mié","Jue","Vie","Sáb","Dom"], DOWL = ["","lun","mar","mié","jue","vie","sáb","dom"];
 const FLD = {Semanal:["dow"],Quincenal:["d1","d2"],Mensual:["dia"],Trimestral:["dia"],Anual:["dia"]};
-const RNG = {dow:[1,7],d1:[1,15],d2:[16,31],dia:[1,31]};
+const RNG = {dow:[1,5],d1:[1,15],d2:[16,31],dia:[1,31]};
 const FLBL = {d1:"1ª quinc.",d2:"2ª quinc.",dia:"día",dow:"día"};
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -115,18 +116,18 @@ const S = {emp:[],cat:[],t:{},tExists:false,mes:today.slice(0,7),view:"tablero",
 // Cada periodo sabe calcular su fecha límite a partir de la regla {dia}|{d1,d2}|{dow}.
 function periodos(per,mes){
   const [y,m]=mes.split("-").map(Number), last=lastDay(y,m), num=v=>Number.isFinite(v)?v:null;
-  if(per==="Mensual") return [{key:`M-${mes}`,label:`${MESES[m-1]} ${y}`,due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}];
+  if(per==="Mensual") return [{key:`M-${mes}`,label:`${MESES[m-1]} ${y}`,lo:iso(y,m,1),hi:iso(y,m,last),due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}];
   if(per==="Quincenal") return [
-    {key:`Q-${mes}-1`,label:"1ª quincena (1–15)",due:v=>num(v.d1)&&iso(y,m,clamp(v.d1,1,15))},
-    {key:`Q-${mes}-2`,label:`2ª quincena (16–${last})`,due:v=>num(v.d2)&&iso(y,m,clamp(v.d2,16,last))}];
-  if(per==="Trimestral") return m%3===0?[{key:`T-${y}-${m/3}`,label:`Trimestre ${m/3} ${y}`,due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
-  if(per==="Anual") return m===12?[{key:`A-${y}`,label:`Año ${y}`,due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
+    {key:`Q-${mes}-1`,label:"1ª quincena (1–15)",lo:iso(y,m,1),hi:iso(y,m,15),due:v=>num(v.d1)&&iso(y,m,clamp(v.d1,1,15))},
+    {key:`Q-${mes}-2`,label:`2ª quincena (16–${last})`,lo:iso(y,m,16),hi:iso(y,m,last),due:v=>num(v.d2)&&iso(y,m,clamp(v.d2,16,last))}];
+  if(per==="Trimestral") return m%3===0?[{key:`T-${y}-${m/3}`,label:`Trimestre ${m/3} ${y}`,lo:iso(y,m-2,1),hi:iso(y,m,last),due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
+  if(per==="Anual") return m===12?[{key:`A-${y}`,label:`Año ${y}`,lo:iso(y,1,1),hi:iso(y,12,31),due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
   if(per==="Semanal"){
     const out=[];
     for(let d=1;d<=last;d++){
       const mon=new Date(Date.UTC(y,m-1,d)); if(mon.getUTCDay()!==1) continue;
       const fmt=x=>`${pad(x.getUTCDate())}/${pad(x.getUTCMonth()+1)}`, end=new Date(mon.getTime()+6*864e5);
-      out.push({key:`W-${mon.toISOString().slice(0,10)}`,label:`Semana ${fmt(mon)}–${fmt(end)}`,
+      out.push({key:`W-${mon.toISOString().slice(0,10)}`,label:`Semana ${fmt(mon)}–${fmt(end)}`,lo:mon.toISOString().slice(0,10),hi:new Date(mon.getTime()+4*864e5).toISOString().slice(0,10),
         due:v=>num(v.dow)&&new Date(mon.getTime()+(clamp(v.dow,1,7)-1)*864e5).toISOString().slice(0,10)});
     }
     return out;
@@ -144,7 +145,8 @@ function tareas(){
     for(const a of e.procesos||[]){
       const c=S.cat.find(x=>x.id===a.p); if(!c||a.per===NA) continue;
       for(const pr of periodos(a.per,S.mes)){
-        const id=`${e.id}_${a.p}_${pr.key}`, s=S.t[id]||{}, due=pr.due(effVenc(a,c))||null;
+        const id=`${e.id}_${a.p}_${pr.key}`, s=S.t[id]||{};
+        const due=(s.d&&s.d>=pr.lo&&s.d<=pr.hi?s.d:pr.due(effVenc(a,c)))||null;
         const estado=s.e||"Pendiente";
         out.push({id,e,c,a,pr,due,estado,nota:s.n||"",resp:s.r||a.resp||"",over:!!s.r,
           late:!!due&&estado!=="Hecha"&&due<today});
@@ -170,7 +172,7 @@ const dis=()=>S.canWrite?"":" disabled";
 function vfield(per,f,val,ph,attrs){
   const [lo,hi]=RNG[f], lab=per==="Semanal"||f==="dia"?"vence":FLBL[f];
   const ctl=f==="dow"
-    ?`<select ${attrs} aria-label="Día de la semana"><option value="">${esc(ph||"sin fecha")}</option>${DOW.slice(1).map((d,i)=>`<option value="${i+1}"${+val===i+1?" selected":""}>${d}</option>`).join("")}</select>`
+    ?`<select ${attrs} aria-label="Día de la semana"><option value="">${esc(ph||"sin fecha")}</option>${DOW.slice(1,6).map((d,i)=>`<option value="${i+1}"${+val===i+1?" selected":""}>${d}</option>`).join("")}</select>`
     :`<input type="number" inputmode="numeric" min="${lo}" max="${hi}" ${attrs} aria-label="${FLBL[f]}" placeholder="${esc(ph||lo+"–"+hi)}" value="${val??""}">`;
   return `<label>${lab}${ctl}</label>`;
 }
@@ -196,11 +198,14 @@ function vTablero(){
   for(const t of ts){
     if(f.agrupar&&last!==t.e.id){last=t.e.id;
       rows+=`<tr class="grp"><td colspan="${cols}">${esc(t.e.nombre)} <span class="mut" style="font-weight:400">· ${esc(t.e.grupo||"sin grupo")} · Finanzas: ${esc(t.e.finanzas||"—")} · Contabilidad: ${esc(t.e.contabilidad||"—")}</span></td></tr>`}
-    const d=t.due?daysTo(t.due):null;
-    const dueCell=t.due?`<span class="due ${t.late?"late":(t.estado!=="Hecha"&&d<=3&&d>=0?"soon":"")}">${fmtDue(t.due)}${t.late?`<small>vencida</small>`:(t.estado!=="Hecha"&&d===0?`<small>hoy</small>`:"")}</span>`:`<span class="mut">—</span>`;
+    const d=t.due?daysTo(t.due):null, day=`data-day="${esc(t.id)}" id="dy-${esc(t.id)}" aria-label="Día de realización"${dis()}`;
+    const ctl=t.a.per==="Semanal"
+      ?`<select ${day}><option value="">Sin día</option>${[0,1,2,3,4].map(i=>{const x=new Date(new Date(t.pr.lo+"T00:00:00Z").getTime()+i*864e5).toISOString().slice(0,10);return `<option value="${x}"${x===t.due?" selected":""}>${fmtDue(x)}</option>`}).join("")}</select>`
+      :`<input type="date" ${day} min="${t.pr.lo}" max="${t.pr.hi}" value="${t.due||""}">`;
+    const dueCell=`<div class="dayc${t.late?" late":""}">${ctl}${t.late?`<small class="due late">vencida</small>`:(t.estado!=="Hecha"&&d===0?`<small class="due soon">hoy</small>`:"")}</div>`;
     rows+=`<tr class="${t.estado==="Hecha"?"done":""}">${f.agrupar?"":`<td>${esc(t.e.nombre)}</td>`}
       <td>${esc(t.c.nombre)}</td><td><span class="tag rep" title="Tarea recurrente">↻ ${t.a.per}</span></td>
-      <td>${esc(t.pr.label)}</td><td>${dueCell}</td>
+      <td>${esc(t.pr.label)}</td><td class="keep">${dueCell}</td>
       <td class="keep"><select class="st st-${t.estado.replace(" ","-")}" data-est="${esc(t.id)}" id="est-${esc(t.id)}" aria-label="Estado"${dis()}>${opts(ESTADOS,t.estado)}</select></td>
       <td class="keep"><input class="r" list="dl-resp" data-resp="${esc(t.id)}" data-def="${esc(t.a.resp||"")}" id="rsp-${esc(t.id)}" aria-label="Responsable" value="${esc(t.resp)}" placeholder="Asignar"${dis()}></td>
       <td class="keep"><input class="n" data-nota="${esc(t.id)}" id="nt-${esc(t.id)}" aria-label="Nota" value="${esc(t.nota)}" placeholder="Nota"${dis()}></td></tr>`;
@@ -223,8 +228,8 @@ function vTablero(){
     <select data-f="estado" id="flt-estado" aria-label="Estado">${opts([...ESTADOS,"Vencidas"],f.estado,"Todo estado")}</select>
     <label style="flex-direction:row;align-items:center;gap:5px"><input type="checkbox" data-c="ocultar" id="flt-ocultar"${f.ocultar?" checked":""}> Ocultar hechas</label>
     <label style="flex-direction:row;align-items:center;gap:5px"><input type="checkbox" data-c="agrupar" id="flt-agrupar"${f.agrupar?" checked":""}> Agrupar por empresa</label></div>
-  <div class="tbl"><table><thead><tr>${f.agrupar?"":"<th>Empresa</th>"}<th>Proceso</th><th>Periodicidad</th><th>Período</th><th>Vence</th><th>Estado</th><th>Responsable</th><th>Nota</th></tr></thead><tbody>${body}</tbody></table></div>
-  <p class="note">Responsable: por defecto el de la empresa/proceso; si lo cambias aquí aplica solo a esta tarea (vacío = vuelve al predeterminado).</p>`;
+  <div class="tbl"><table><thead><tr>${f.agrupar?"":"<th>Empresa</th>"}<th>Proceso</th><th>Periodicidad</th><th>Período</th><th>Día (inicio y vence)</th><th>Estado</th><th>Responsable</th><th>Nota</th></tr></thead><tbody>${body}</tbody></table></div>
+  <p class="note">Día: cada tarea se hace ese día, que es su inicio y su vencimiento. Semanal se elige lun–vie de esa semana; quincenal y mensual, cualquier fecha del período. Sin elegir, se usa el día predeterminado del proceso. Responsable: por defecto el de la empresa/proceso; si lo cambias aquí aplica solo a esta tarea.</p>`;
 }
 
 function vEmpresas(){
@@ -243,8 +248,8 @@ function vProcesos(){
   const uso=id=>S.emp.filter(e=>(e.procesos||[]).some(a=>a.p===id&&a.per!==NA)).length;
   const rows=S.cat.map(c=>`<tr><td><b>${esc(c.nombre)}</b><div class="mut" style="font-size:12px">${uso(c.id)} empresas</div></td>
     ${PER.map(p=>`<td><div class="pv" style="display:flex;gap:6px;flex-wrap:wrap">${FLD[p].map(f=>vfield(p,f,c.venc?.[p]?.[f],"",`data-cv="1" data-pid="${esc(c.id)}" data-per="${p}" data-f="${f}" id="cv-${esc(c.id)}-${p}-${f}"${dis()}`)).join("")}</div></td>`).join("")}</tr>`).join("");
-  return `<div class="bar"><h2>Procesos y fecha límite predeterminada</h2></div>
-  <p class="note" style="padding-inline:0">Define una vez la fecha límite de cada proceso según su periodicidad y se repite en cada período. Cada empresa puede cambiarla en su ficha. Semanal: día de la semana. Quincenal: un día en cada quincena. Mensual, Trimestral y Anual: día del mes (si el mes es más corto, se usa el último día).</p>
+  return `<div class="bar"><h2>Procesos y día predeterminado</h2></div>
+  <p class="note" style="padding-inline:0">Define una vez el día en que se hace cada proceso según su periodicidad y se repite en cada período; ese día es inicio y vencimiento. Cada empresa puede cambiarlo en su ficha, y cada tarea en el tablero. Semanal: día de lunes a viernes. Quincenal: un día en cada quincena. Mensual, Trimestral y Anual: día del mes (si el mes es más corto, se usa el último día).</p>
   <div class="tbl"><table style="min-width:900px"><thead><tr><th>Proceso</th>${PER.map(p=>`<th>${p}</th>`).join("")}</tr></thead>
   <tbody>${loading()?`<tr><td colspan="6" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>`;
 }
@@ -270,8 +275,8 @@ function editEmpresa(id){
    <label>Estado<select data-k="estado" id="fe-estado">${opts(["Activo","Inactivo"],e.estado)}</select></label></div>
   ${CAMPOS.map(([k])=>`<datalist id="dl-${k}">${uniq(S.emp.map(x=>x[k])).map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`).join("")}
   <h2 style="font-size:14px;margin-top:6px">Procesos, periodicidad y responsable</h2>
-  <p class="note" style="padding:2px 0 8px">Todos los procesos vienen incluidos. Cambia la periodicidad, o “No aplica” si esta empresa no lo requiere. Deja la fecha en blanco para usar la predeterminada.</p>
-  <div class="hd"><span>Proceso</span><span>Periodicidad</span><span>Fecha límite</span><span>Responsable</span></div>
+  <p class="note" style="padding:2px 0 8px">Todos los procesos vienen incluidos. Cambia la periodicidad, o “No aplica” si esta empresa no lo requiere. Deja el día en blanco para usar el del proceso.</p>
+  <div class="hd"><span>Proceso</span><span>Periodicidad</span><span>Día predeterminado</span><span>Responsable</span></div>
   <div id="procs">${S.cat.map(row).join("")}</div>
   <div class="acts">${nuevo?"":`<button type="button" class="bad" id="delE" style="margin-right:auto"${dis()}>Eliminar empresa</button>`}<button type="button" id="cancel">Cancelar</button><button type="button" class="pri" id="ok"${dis()}>Guardar</button></div>`;
   $("#cancel",dlg).onclick=()=>dlg.close();
@@ -335,6 +340,7 @@ app.addEventListener("change",e=>{
   if(d.est) patchT(d.est,{e:t.value});
   else if(d.resp!==undefined){const v=t.value.trim();patchT(d.resp,{r:v===d.def?"":v})}
   else if(d.nota!==undefined) patchT(d.nota,{n:t.value});
+  else if(d.day) patchT(d.day,{d:t.value});
   else if(d.cv) saveCat(d.pid,d.per,d.f,readV(t));
   else if(d.f){S.f[d.f]=t.value;render(true)}
   else if(d.c){S.f[d.c]=t.checked;render(true)}
