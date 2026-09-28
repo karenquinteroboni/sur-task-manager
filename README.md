@@ -1,8 +1,8 @@
 # SUR Task Manager
 
-App web estática (sin dependencias). Abrir `index.html` o servir la carpeta (`npx http-server`).
+Página única en `artifact/index.html`, publicada como Artifact de Claude con base compartida (`db`).
 
-- **Tablero**: tareas del mes generadas desde empresa × proceso × periodicidad (semanal = una por lunes del mes, quincenal = 2, mensual = 1). Estados: Pendiente / En curso / Bloqueada / Hecha, con nota.
-- **Empresas**: alta/edición/baja; por empresa se define qué procesos tiene y cada cuánto.
-- **Procesos**: catálogo (agregar/renombrar/eliminar).
-- Datos en `localStorage` del navegador; usar Exportar/Importar para respaldo. `seed.js` se genera del Excel con `python3 tools/build_seed.py`.
+- **Tablero**: tareas del mes generadas desde empresa × proceso × periodicidad, con fecha límite, responsable, estado y nota.
+- **Empresas**: cada empresa trae los 5 procesos; solo se edita periodicidad (o "No aplica"), fecha límite propia y responsable.
+- **Procesos**: fecha límite predeterminada por proceso y periodicidad (se define una vez y se repite).
+- Datos: colecciones `empresas`, `config/catalogo` y `estados/<YYYY-MM>`. Semilla desde el Excel: `tools/build_seed.py` genera `seed.js`.

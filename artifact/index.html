@@ -1,0 +1,379 @@
+<title>SUR Task Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: barra superior fija, resumen del mes, filtros y una tabla de trabajo que domina la pantalla. */
+:root{
+  --bg:#f2f4f8; --surface:#ffffff; --ink:#1a2333; --mut:#5b687d; --line:#dce1ea;
+  --accent:#23508f; --accent-ink:#ffffff; --ok:#17794a; --warn:#9a6200; --bad:#b42e2e;
+  --sans:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1520; --surface:#172030; --ink:#e6ebf3; --mut:#92a0b6; --line:#28334a;
+  --accent:#6ea3ef; --accent-ink:#0b1220; --ok:#4cc48a; --warn:#e2b04a; --bad:#ef7b7b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1520; --surface:#172030; --ink:#e6ebf3; --mut:#92a0b6; --line:#28334a;
+  --accent:#6ea3ef; --accent-ink:#0b1220; --ok:#4cc48a; --warn:#e2b04a; --bad:#ef7b7b; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.4;padding-inline:16px;padding-block:0 32px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding-block:10px;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;border-bottom:1px solid var(--line);margin-inline:-16px;padding-inline:16px}
+h1{font-size:16px;font-weight:600;margin:0 8px 0 0;letter-spacing:.01em}
+h2{font-size:15px;font-weight:600;margin:0}
+main{max-width:1320px;margin-inline:auto;padding-top:14px}
+button,select,input{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:5px 9px;min-width:0}
+button{cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled,select:disabled,input:disabled{opacity:.55;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+nav{display:flex;gap:4px}
+nav button.on,button.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.bad{color:var(--bad)} button.bad.armed{background:var(--bad);color:var(--surface);border-color:var(--bad)}
+.sp{flex:1}
+.live{font:12px var(--mono);color:var(--mut)}
+.live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--mut);margin-right:6px}
+.live.ok::before{background:var(--ok)}
+.ro{background:color-mix(in srgb,var(--warn) 14%,transparent);border:1px solid var(--warn);color:var(--warn);padding:6px 10px;border-radius:5px;margin-bottom:12px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.bar select{max-width:100%}
+.month{display:flex;gap:6px;align-items:center}
+.month b{font-size:15px;min-width:9.5em;text-align:center;text-transform:capitalize}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin-bottom:12px}
+.kpi{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:8px 12px}
+.kpi b{display:block;font:500 20px var(--mono)} .kpi span{color:var(--mut);font-size:12px}
+.prog{height:6px;background:var(--line);border-radius:3px;overflow:hidden;flex:1;min-width:120px}
+.prog i{display:block;height:100%;background:var(--ok)}
+.tbl{border:1px solid var(--line);background:var(--surface);border-radius:6px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th,td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;background:var(--surface);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+tr.grp td{background:var(--bg);font-weight:600;padding-block:8px}
+tr.done td:not(.keep){opacity:.5}
+.mut{color:var(--mut)} .mono{font-family:var(--mono)}
+.tag{display:inline-block;padding:1px 8px;border-radius:9px;font-size:12px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+.tag.rep{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+.due{font:12.5px var(--mono);white-space:nowrap}
+.due.late{color:var(--bad);font-weight:500} .due.soon{color:var(--warn)}
+.due small{margin-left:6px;font-family:var(--sans)}
+select.st{font-weight:600}
+.st-Pendiente{color:var(--mut)} .st-En-curso{color:var(--accent)} .st-Bloqueada{color:var(--bad)} .st-Hecha{color:var(--ok)}
+td input.r,td input.n{width:100%;min-width:110px}
+.note{padding:10px 12px;color:var(--mut)}
+.empty{padding:28px 16px;text-align:center;color:var(--mut)}
+dialog{border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:18px;width:min(860px,calc(100vw - 24px));max-height:92vh}
+dialog::backdrop{background:rgba(8,12,20,.55)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut)}
+.prow{display:grid;grid-template-columns:minmax(150px,1.3fr) 130px minmax(150px,1.4fr) minmax(120px,1fr);gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.prow .pv{display:flex;gap:6px;flex-wrap:wrap}
+.pv label{flex-direction:row;align-items:center;gap:4px}
+.pv input{width:64px} .pv select{width:auto}
+.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.hd{display:grid;grid-template-columns:minmax(150px,1.3fr) 130px minmax(150px,1.4fr) minmax(120px,1fr);gap:8px;font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+@media (max-width:640px){.prow,.hd{grid-template-columns:1fr 1fr}.hd{display:none}.prow .pname{grid-column:1/-1;font-weight:600}}
+#toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));max-width:420px;margin-inline:auto;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:6px;z-index:20}
+</style>
+
+<header>
+  <h1>SUR Task Manager</h1>
+  <nav id="nav">
+    <button type="button" data-v="tablero" id="nav-tablero">Tablero</button>
+    <button type="button" data-v="empresas" id="nav-empresas">Empresas</button>
+    <button type="button" data-v="procesos" id="nav-procesos">Procesos</button>
+  </nav>
+  <span class="sp"></span>
+  <span class="live" id="live">conectando…</span>
+</header>
+<main id="app"></main>
+<datalist id="dl-resp"></datalist>
+<dialog id="dlg"></dialog>
+<div id="toast" role="status" hidden></div>
+
+<script>
+"use strict";
+const PER = ["Semanal","Quincenal","Mensual","Trimestral","Anual"], NA = "No aplica";
+const ESTADOS = ["Pendiente","En curso","Bloqueada","Hecha"];
+const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const DOW = ["","Lun","Mar","Mié","Jue","Vie","Sáb","Dom"], DOWL = ["","lun","mar","mié","jue","vie","sáb","dom"];
+const FLD = {Semanal:["dow"],Quincenal:["d1","d2"],Mensual:["dia"],Trimestral:["dia"],Anual:["dia"]};
+const RNG = {dow:[1,7],d1:[1,15],d2:[16,31],dia:[1,31]};
+const FLBL = {d1:"1ª quinc.",d2:"2ª quinc.",dia:"día",dow:"día"};
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clone = o=>JSON.parse(JSON.stringify(o));
+const pad = n=>String(n).padStart(2,"0");
+const iso = (y,m,d)=>`${y}-${pad(m)}-${pad(d)}`;
+const lastDay = (y,m)=>new Date(Date.UTC(y,m,0)).getUTCDate();
+const clamp = (n,a,b)=>Math.min(b,Math.max(a,n));
+const today = (()=>{const n=new Date();return iso(n.getFullYear(),n.getMonth()+1,n.getDate())})();
+
+const S = {emp:[],cat:[],t:{},tExists:false,mes:today.slice(0,7),view:"tablero",q:"",dirty:false,
+  f:{empresa:"",resp:"",proceso:"",per:"",estado:"",ocultar:false,agrupar:true},
+  ready:{emp:false,cat:false,t:false},canWrite:true,db:null,fail:""};
+
+/* ---------- periodos y fechas límite ---------- */
+// Cada periodo sabe calcular su fecha límite a partir de la regla {dia}|{d1,d2}|{dow}.
+function periodos(per,mes){
+  const [y,m]=mes.split("-").map(Number), last=lastDay(y,m), num=v=>Number.isFinite(v)?v:null;
+  if(per==="Mensual") return [{key:`M-${mes}`,label:`${MESES[m-1]} ${y}`,due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}];
+  if(per==="Quincenal") return [
+    {key:`Q-${mes}-1`,label:"1ª quincena (1–15)",due:v=>num(v.d1)&&iso(y,m,clamp(v.d1,1,15))},
+    {key:`Q-${mes}-2`,label:`2ª quincena (16–${last})`,due:v=>num(v.d2)&&iso(y,m,clamp(v.d2,16,last))}];
+  if(per==="Trimestral") return m%3===0?[{key:`T-${y}-${m/3}`,label:`Trimestre ${m/3} ${y}`,due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
+  if(per==="Anual") return m===12?[{key:`A-${y}`,label:`Año ${y}`,due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
+  if(per==="Semanal"){
+    const out=[];
+    for(let d=1;d<=last;d++){
+      const mon=new Date(Date.UTC(y,m-1,d)); if(mon.getUTCDay()!==1) continue;
+      const fmt=x=>`${pad(x.getUTCDate())}/${pad(x.getUTCMonth()+1)}`, end=new Date(mon.getTime()+6*864e5);
+      out.push({key:`W-${mon.toISOString().slice(0,10)}`,label:`Semana ${fmt(mon)}–${fmt(end)}`,
+        due:v=>num(v.dow)&&new Date(mon.getTime()+(clamp(v.dow,1,7)-1)*864e5).toISOString().slice(0,10)});
+    }
+    return out;
+  }
+  return [];
+}
+const effVenc=(a,c)=>({...(c.venc?.[a.per]||{}),...(a.venc||{})});
+const fmtDue=s=>{const d=new Date(s+"T00:00:00Z");return `${DOWL[d.getUTCDay()||7]} ${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}`};
+const daysTo=s=>Math.round((new Date(s+"T00:00:00Z")-new Date(today+"T00:00:00Z"))/864e5);
+
+function tareas(){
+  const out=[];
+  for(const e of S.emp){
+    if(e.estado!=="Activo") continue;
+    for(const a of e.procesos||[]){
+      const c=S.cat.find(x=>x.id===a.p); if(!c||a.per===NA) continue;
+      for(const pr of periodos(a.per,S.mes)){
+        const id=`${e.id}_${a.p}_${pr.key}`, s=S.t[id]||{}, due=pr.due(effVenc(a,c))||null;
+        const estado=s.e||"Pendiente";
+        out.push({id,e,c,a,pr,due,estado,nota:s.n||"",resp:s.r||a.resp||"",over:!!s.r,
+          late:!!due&&estado!=="Hecha"&&due<today});
+      }
+    }
+  }
+  return out;
+}
+
+/* ---------- utilidades de UI ---------- */
+const opts=(arr,sel,blank)=>(blank!==undefined?`<option value="">${esc(blank)}</option>`:"")+arr.map(v=>`<option${v===sel?" selected":""}>${esc(v)}</option>`).join("");
+const uniq=a=>[...new Set(a.filter(Boolean).map(String))].sort((x,y)=>x.localeCompare(y,"es"));
+let toastT; function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,4000)}
+let chain=Promise.resolve();
+const enqueue=fn=>{chain=chain.then(fn).catch(e=>toast("No se pudo guardar: "+(e?.message||e?.code||"error")))};
+function setResp(){
+  const names=uniq([...S.emp.flatMap(e=>[e.finanzas,e.contabilidad,...(e.procesos||[]).map(a=>a.resp)]),...Object.values(S.t).map(t=>t.r)]);
+  $("#dl-resp").innerHTML=names.map(n=>`<option value="${esc(n)}">`).join("");
+}
+const dis=()=>S.canWrite?"":" disabled";
+
+// Campo de fecha límite según periodicidad: día de la semana, día del mes, o dos días (quincenal).
+function vfield(per,f,val,ph,attrs){
+  const [lo,hi]=RNG[f], lab=per==="Semanal"||f==="dia"?"vence":FLBL[f];
+  const ctl=f==="dow"
+    ?`<select ${attrs} aria-label="Día de la semana"><option value="">${esc(ph||"sin fecha")}</option>${DOW.slice(1).map((d,i)=>`<option value="${i+1}"${+val===i+1?" selected":""}>${d}</option>`).join("")}</select>`
+    :`<input type="number" inputmode="numeric" min="${lo}" max="${hi}" ${attrs} aria-label="${FLBL[f]}" placeholder="${esc(ph||lo+"–"+hi)}" value="${val??""}">`;
+  return `<label>${lab}${ctl}</label>`;
+}
+const readV=el=>{const n=parseInt(el.value,10);return Number.isFinite(n)&&el.value!==""?n:null};
+
+/* ---------- vistas ---------- */
+function shell(inner){return S.fail?`<div class="empty">${esc(S.fail)}</div>`:inner}
+function loading(){return !(S.ready.emp&&S.ready.cat)}
+
+function vTablero(){
+  const all=tareas(), f=S.f;
+  const [y,m]=S.mes.split("-").map(Number);
+  const resps=uniq(all.map(t=>t.resp));
+  const ts=all.filter(t=>(!f.empresa||t.e.id===f.empresa)&&(!f.proceso||t.c.id===f.proceso)&&(!f.per||t.a.per===f.per)
+    &&(!f.resp||t.resp===f.resp)&&(!f.estado||(f.estado==="Vencidas"?t.late:t.estado===f.estado))&&!(f.ocultar&&t.estado==="Hecha"));
+  const cnt=s=>all.filter(t=>t.estado===s).length, late=all.filter(t=>t.late).length;
+  const pct=all.length?Math.round(cnt("Hecha")/all.length*100):0;
+  const ord=t=>S.cat.findIndex(c=>c.id===t.c.id);
+  ts.sort(f.agrupar
+    ?(a,b)=>a.e.nombre.localeCompare(b.e.nombre,"es")||ord(a)-ord(b)||a.pr.key.localeCompare(b.pr.key)
+    :(a,b)=>(a.due||"9").localeCompare(b.due||"9")||a.e.nombre.localeCompare(b.e.nombre,"es")||ord(a)-ord(b));
+  let rows="",last=null; const cols=f.agrupar?7:8;
+  for(const t of ts){
+    if(f.agrupar&&last!==t.e.id){last=t.e.id;
+      rows+=`<tr class="grp"><td colspan="${cols}">${esc(t.e.nombre)} <span class="mut" style="font-weight:400">· ${esc(t.e.grupo||"sin grupo")} · Finanzas: ${esc(t.e.finanzas||"—")} · Contabilidad: ${esc(t.e.contabilidad||"—")}</span></td></tr>`}
+    const d=t.due?daysTo(t.due):null;
+    const dueCell=t.due?`<span class="due ${t.late?"late":(t.estado!=="Hecha"&&d<=3&&d>=0?"soon":"")}">${fmtDue(t.due)}${t.late?`<small>vencida</small>`:(t.estado!=="Hecha"&&d===0?`<small>hoy</small>`:"")}</span>`:`<span class="mut">—</span>`;
+    rows+=`<tr class="${t.estado==="Hecha"?"done":""}">${f.agrupar?"":`<td>${esc(t.e.nombre)}</td>`}
+      <td>${esc(t.c.nombre)}</td><td><span class="tag rep" title="Tarea recurrente">↻ ${t.a.per}</span></td>
+      <td>${esc(t.pr.label)}</td><td>${dueCell}</td>
+      <td class="keep"><select class="st st-${t.estado.replace(" ","-")}" data-est="${esc(t.id)}" id="est-${esc(t.id)}" aria-label="Estado"${dis()}>${opts(ESTADOS,t.estado)}</select></td>
+      <td class="keep"><input class="r" list="dl-resp" data-resp="${esc(t.id)}" data-def="${esc(t.a.resp||"")}" id="rsp-${esc(t.id)}" aria-label="Responsable" value="${esc(t.resp)}" placeholder="Asignar"${dis()}></td>
+      <td class="keep"><input class="n" data-nota="${esc(t.id)}" id="nt-${esc(t.id)}" aria-label="Nota" value="${esc(t.nota)}" placeholder="Nota"${dis()}></td></tr>`;
+  }
+  const body=loading()||!S.ready.t?`<tr><td colspan="9" class="empty">Cargando tareas…</td></tr>`
+    :all.length===0?`<tr><td colspan="9" class="empty">No hay tareas en ${MESES[m-1]} ${y}. Se generan desde Empresas según la periodicidad de cada proceso.</td></tr>`
+    :ts.length===0?`<tr><td colspan="9" class="empty">Ninguna tarea coincide con los filtros.</td></tr>`:rows;
+  return `
+  <div class="bar"><div class="month"><button type="button" data-mes="-1" aria-label="Mes anterior">◀</button><b>${MESES[m-1]} ${y}</b><button type="button" data-mes="1" aria-label="Mes siguiente">▶</button>
+    <button type="button" data-mes="0">Hoy</button></div>
+    <div class="prog" title="${pct}% hecho"><i style="width:${pct}%"></i></div><b class="mono">${pct}%</b></div>
+  <div class="kpis"><div class="kpi"><b>${all.length}</b><span>Tareas del mes</span></div>
+    ${ESTADOS.map(s=>`<div class="kpi"><b class="st-${s.replace(" ","-")}">${cnt(s)}</b><span>${s}</span></div>`).join("")}
+    <div class="kpi"><b style="color:${late?"var(--bad)":"inherit"}">${late}</b><span>Vencidas</span></div></div>
+  <div class="bar">
+    <select data-f="empresa" id="flt-empresa" aria-label="Empresa"><option value="">Todas las empresas</option>${S.emp.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(e=>`<option value="${esc(e.id)}"${f.empresa===e.id?" selected":""}>${esc(e.nombre)}</option>`).join("")}</select>
+    <select data-f="resp" id="flt-resp" aria-label="Responsable">${opts(resps,f.resp,"Todos los responsables")}</select>
+    <select data-f="proceso" id="flt-proceso" aria-label="Proceso"><option value="">Todos los procesos</option>${S.cat.map(c=>`<option value="${esc(c.id)}"${f.proceso===c.id?" selected":""}>${esc(c.nombre)}</option>`).join("")}</select>
+    <select data-f="per" id="flt-per" aria-label="Periodicidad">${opts(PER,f.per,"Toda periodicidad")}</select>
+    <select data-f="estado" id="flt-estado" aria-label="Estado">${opts([...ESTADOS,"Vencidas"],f.estado,"Todo estado")}</select>
+    <label style="flex-direction:row;align-items:center;gap:5px"><input type="checkbox" data-c="ocultar" id="flt-ocultar"${f.ocultar?" checked":""}> Ocultar hechas</label>
+    <label style="flex-direction:row;align-items:center;gap:5px"><input type="checkbox" data-c="agrupar" id="flt-agrupar"${f.agrupar?" checked":""}> Agrupar por empresa</label></div>
+  <div class="tbl"><table><thead><tr>${f.agrupar?"":"<th>Empresa</th>"}<th>Proceso</th><th>Periodicidad</th><th>Período</th><th>Vence</th><th>Estado</th><th>Responsable</th><th>Nota</th></tr></thead><tbody>${body}</tbody></table></div>
+  <p class="note">Responsable: por defecto el de la empresa/proceso; si lo cambias aquí aplica solo a esta tarea (vacío = vuelve al predeterminado).</p>`;
+}
+
+function vEmpresas(){
+  const q=S.q.toLowerCase();
+  const es=S.emp.filter(e=>!q||[e.nombre,e.grupo,e.rut,e.finanzas,e.contabilidad].join(" ").toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  const rows=es.map(e=>`<tr><td><button type="button" data-edit="${esc(e.id)}" id="ed-${esc(e.id)}">${esc(e.nombre)}</button></td><td>${esc(e.grupo)}</td><td class="mono">${esc(e.rut)}</td><td>${esc(e.servicio)}</td>
+    <td>${esc(e.finanzas)}</td><td>${esc(e.contabilidad)}</td><td>${esc(e.estado)}</td>
+    <td>${(e.procesos||[]).filter(a=>a.per!==NA).map(a=>{const c=S.cat.find(x=>x.id===a.p);return c?`<span class="tag" title="${esc(c.nombre)}">${esc(c.nombre.split(" ")[0])} · ${a.per}</span>`:""}).join(" ")}</td></tr>`).join("");
+  return `<div class="bar"><h2>Empresas (${S.emp.length})</h2><input id="q" placeholder="Buscar…" value="${esc(S.q)}" aria-label="Buscar"><span class="sp"></span>
+    <button type="button" class="pri" data-edit="new" id="new-emp"${dis()}>+ Agregar empresa</button></div>
+  <div class="tbl"><table><thead><tr><th>Empresa</th><th>Grupo</th><th>RUT</th><th>Servicio</th><th>Finanzas</th><th>Contab.</th><th>Estado</th><th>Procesos y periodicidad</th></tr></thead>
+  <tbody>${loading()?`<tr><td colspan="8" class="empty">Cargando empresas…</td></tr>`:rows||`<tr><td colspan="8" class="empty">Sin empresas. Usa “Agregar empresa”.</td></tr>`}</tbody></table></div>`;
+}
+
+function vProcesos(){
+  const uso=id=>S.emp.filter(e=>(e.procesos||[]).some(a=>a.p===id&&a.per!==NA)).length;
+  const rows=S.cat.map(c=>`<tr><td><b>${esc(c.nombre)}</b><div class="mut" style="font-size:12px">${uso(c.id)} empresas</div></td>
+    ${PER.map(p=>`<td><div class="pv" style="display:flex;gap:6px;flex-wrap:wrap">${FLD[p].map(f=>vfield(p,f,c.venc?.[p]?.[f],"",`data-cv="1" data-pid="${esc(c.id)}" data-per="${p}" data-f="${f}" id="cv-${esc(c.id)}-${p}-${f}"${dis()}`)).join("")}</div></td>`).join("")}</tr>`).join("");
+  return `<div class="bar"><h2>Procesos y fecha límite predeterminada</h2></div>
+  <p class="note" style="padding-inline:0">Define una vez la fecha límite de cada proceso según su periodicidad y se repite en cada período. Cada empresa puede cambiarla en su ficha. Semanal: día de la semana. Quincenal: un día en cada quincena. Mensual, Trimestral y Anual: día del mes (si el mes es más corto, se usa el último día).</p>
+  <div class="tbl"><table style="min-width:900px"><thead><tr><th>Proceso</th>${PER.map(p=>`<th>${p}</th>`).join("")}</tr></thead>
+  <tbody>${loading()?`<tr><td colspan="6" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>`;
+}
+
+/* ---------- ficha de empresa ---------- */
+const CAMPOS=[["nombre","Nombre"],["grupo","Grupo"],["rut","RUT"],["tipo","Tipo"],["complejidad","Complejidad"],["servicio","Servicio"],["finanzas","Finanzas (informativo)"],["contabilidad","Contabilidad (informativo)"],["carga","Carga"]];
+function pvHTML(c,a,pid){
+  if(a.per===NA) return "";
+  return FLD[a.per].map(f=>{const d=c.venc?.[a.per]?.[f];
+    return vfield(a.per,f,a.venc?.[f],d!=null?(f==="dow"?"predet. "+DOW[d]:"predet. "+d):"",`data-vf="${f}" id="dv-${pid}-${f}"`)}).join("");
+}
+function editEmpresa(id){
+  const nuevo=id==="new";
+  const e=nuevo?{nombre:"",estado:"Activo",tipo:"Regular",procesos:[]}:clone(S.emp.find(x=>x.id===id));
+  const dlg=$("#dlg");
+  const row=c=>{const a=(e.procesos||[]).find(p=>p.p===c.id)||{p:c.id,per:nuevo?"Mensual":NA};
+    return `<div class="prow" data-pid="${esc(c.id)}"><div class="pname">${esc(c.nombre)}</div>
+    <select data-r="per" id="pp-${esc(c.id)}" aria-label="Periodicidad de ${esc(c.nombre)}">${opts([...PER,NA],a.per)}</select>
+    <div class="pv" data-r="v">${pvHTML(c,a,esc(c.id))}</div>
+    <input data-r="resp" list="dl-resp" id="pr-${esc(c.id)}" aria-label="Responsable de ${esc(c.nombre)}" placeholder="Responsable" value="${esc(a.resp||"")}"></div>`};
+  dlg.innerHTML=`<h2>${nuevo?"Nueva empresa":"Editar empresa"}</h2>
+  <div class="grid">${CAMPOS.map(([k,l])=>`<label>${l}<input data-k="${k}" id="fe-${k}" list="dl-${k}" value="${esc(e[k])}"></label>`).join("")}
+   <label>Estado<select data-k="estado" id="fe-estado">${opts(["Activo","Inactivo"],e.estado)}</select></label></div>
+  ${CAMPOS.map(([k])=>`<datalist id="dl-${k}">${uniq(S.emp.map(x=>x[k])).map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`).join("")}
+  <h2 style="font-size:14px;margin-top:6px">Procesos, periodicidad y responsable</h2>
+  <p class="note" style="padding:2px 0 8px">Todos los procesos vienen incluidos. Cambia la periodicidad, o “No aplica” si esta empresa no lo requiere. Deja la fecha en blanco para usar la predeterminada.</p>
+  <div class="hd"><span>Proceso</span><span>Periodicidad</span><span>Fecha límite</span><span>Responsable</span></div>
+  <div id="procs">${S.cat.map(row).join("")}</div>
+  <div class="acts">${nuevo?"":`<button type="button" class="bad" id="delE" style="margin-right:auto"${dis()}>Eliminar empresa</button>`}<button type="button" id="cancel">Cancelar</button><button type="button" class="pri" id="ok"${dis()}>Guardar</button></div>`;
+  $("#cancel",dlg).onclick=()=>dlg.close();
+  $("#procs",dlg).onchange=ev=>{
+    if(ev.target.dataset.r!=="per") return;
+    const r=ev.target.closest(".prow"), c=S.cat.find(x=>x.id===r.dataset.pid);
+    $("[data-r=v]",r).innerHTML=pvHTML(c,{per:ev.target.value},esc(c.id));
+  };
+  const del=$("#delE",dlg);
+  if(del) del.onclick=()=>{
+    if(!del.classList.contains("armed")){del.classList.add("armed");del.textContent="¿Seguro? Confirmar eliminación";return}
+    enqueue(()=>S.db.doc("empresas/"+id).delete()); dlg.close();
+  };
+  $("#ok",dlg).onclick=()=>{
+    dlg.querySelectorAll("[data-k]").forEach(i=>e[i.dataset.k]=i.value.trim());
+    if(!e.nombre) return toast("El nombre es obligatorio.");
+    e.carga=Number(e.carga)||0;
+    e.procesos=[...dlg.querySelectorAll(".prow")].map(r=>{
+      const per=$("[data-r=per]",r).value, a={p:r.dataset.pid,per}, resp=$("[data-r=resp]",r).value.trim();
+      if(resp) a.resp=resp;
+      if(per!==NA){const v={};r.querySelectorAll("[data-vf]").forEach(el=>{const n=readV(el);if(n!=null)v[el.dataset.vf]=clamp(n,...RNG[el.dataset.vf])});if(Object.keys(v).length)a.venc=v}
+      return a;
+    });
+    const docId=nuevo?"e"+Date.now().toString(36):id;
+    enqueue(()=>S.db.doc("empresas/"+docId).set(e)); dlg.close();
+  };
+  dlg.showModal();
+}
+
+/* ---------- render y eventos ---------- */
+function render(force){
+  const a=document.activeElement;
+  if(!force&&a&&$("#app").contains(a)&&a.matches("input:not([type=checkbox])")){S.dirty=true;return}
+  S.dirty=false;
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===S.view));
+  const ro=S.canWrite?"":`<div class="ro">Solo lectura: tu acceso no permite editar. Pide permiso de Colaborador al dueño.</div>`;
+  $("#app").innerHTML=shell(ro+{tablero:vTablero,empresas:vEmpresas,procesos:vProcesos}[S.view]());
+  setResp();
+}
+document.addEventListener("focusout",()=>{if(S.dirty)setTimeout(()=>render(),0)});
+$("#nav").onclick=e=>{if(e.target.dataset.v){S.view=e.target.dataset.v;render(true)}};
+
+function patchT(id,patch){
+  const mes=S.mes; if(!S.db) return;
+  enqueue(async()=>{
+    const ref=S.db.doc("estados/"+mes), body={t:{[id]:patch}};
+    if(S.tExists&&mes===S.mes) await ref.update(body); else await ref.set(body);
+    if(mes===S.mes) S.tExists=true;
+  });
+}
+function saveCat(pid,per,f,val){
+  const items=clone(S.cat), it=items.find(x=>x.id===pid); if(!it) return;
+  it.venc=it.venc||{}; it.venc[per]=it.venc[per]||{};
+  if(val==null) delete it.venc[per][f]; else it.venc[per][f]=clamp(val,...RNG[f]);
+  if(!Object.keys(it.venc[per]).length) delete it.venc[per];
+  enqueue(()=>S.db.doc("config/catalogo").set({items}));
+}
+const app=$("#app");
+app.addEventListener("change",e=>{
+  const t=e.target,d=t.dataset;
+  if(d.est) patchT(d.est,{e:t.value});
+  else if(d.resp!==undefined){const v=t.value.trim();patchT(d.resp,{r:v===d.def?"":v})}
+  else if(d.nota!==undefined) patchT(d.nota,{n:t.value});
+  else if(d.cv) saveCat(d.pid,d.per,d.f,readV(t));
+  else if(d.f){S.f[d.f]=t.value;render(true)}
+  else if(d.c){S.f[d.c]=t.checked;render(true)}
+});
+app.addEventListener("input",e=>{
+  if(e.target.id==="q"){S.q=e.target.value;const p=e.target.selectionStart;render(true);const q=$("#q");q.focus();q.setSelectionRange(p,p)}
+});
+app.addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  if(b.dataset.mes!==undefined){
+    const n=Number(b.dataset.mes), [y,m]=S.mes.split("-").map(Number);
+    S.mes=n===0?today.slice(0,7):new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7);
+    subMes(); render(true);
+  } else if(b.dataset.edit) editEmpresa(b.dataset.edit);
+});
+
+/* ---------- datos compartidos ---------- */
+let unMes=null;
+function subMes(){
+  if(unMes) unMes(); if(!S.db) return;
+  const mes=S.mes; S.t={};S.tExists=false;S.ready.t=false;
+  unMes=S.db.doc("estados/"+mes).onSnapshot(s=>{
+    if(mes!==S.mes) return;
+    S.tExists=s.exists;S.t=s.exists?(s.data().t||{}):{};S.ready.t=true;render();
+  },err=>{S.fail="No se pudieron leer las tareas ("+err.code+").";render(true)});
+}
+render(true);
+(async()=>{
+  const live=$("#live");
+  try{
+    const c=window.claude; if(!c?.use) throw 0;
+    const [db,user]=await Promise.all([c.use("db"),c.use("user")]);
+    if(!db) throw 0;
+    S.db=db;
+    if(user&&user.can){try{S.canWrite=(await user.can("data.write"))!==false}catch(e){}}
+    const onErr=err=>{S.fail="No se pudieron leer los datos ("+err.code+").";live.textContent="sin conexión";render(true)};
+    db.collection("empresas").onSnapshot(s=>{S.emp=s.docs.map(d=>({id:d.id,...d.data()}));S.ready.emp=true;live.textContent="en vivo";live.className="live ok";render()},onErr);
+    db.doc("config/catalogo").onSnapshot(s=>{S.cat=s.exists?(s.data().items||[]):[];S.ready.cat=true;render()},onErr);
+    subMes();
+  }catch(e){if(e)console.error(e);S.fail="Este visor no tiene acceso a los datos compartidos. Abre el artifact desde claude.ai.";live.textContent="sin datos";render(true)}
+})();
+</script>
