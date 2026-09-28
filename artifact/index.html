@@ -61,7 +61,7 @@ select.st{font-weight:600}
 td input.r,td input.n{width:100%;min-width:110px}
 .note{padding:10px 12px;color:var(--mut)}
 .empty{padding:28px 16px;text-align:center;color:var(--mut)}
-dialog{border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:18px;width:min(860px,calc(100vw - 24px));max-height:92vh}
+dialog{border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:18px;width:min(760px,calc(100vw - 24px));max-height:92vh}
 dialog::backdrop{background:rgba(8,12,20,.55)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0}
 label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut)}
@@ -73,6 +73,9 @@ label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut)
 .hd{display:grid;grid-template-columns:minmax(150px,1.3fr) 130px minmax(150px,1.4fr) minmax(120px,1fr);gap:8px;font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
 @media (max-width:640px){.prow,.hd{grid-template-columns:1fr 1fr}.hd{display:none}.prow .pname{grid-column:1/-1;font-weight:600}}
 #toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));max-width:420px;margin-inline:auto;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:6px;z-index:20}
+.choice{display:flex;flex-direction:column;gap:4px;align-items:flex-start;margin:12px 0}.choice small{color:var(--mut);font-size:12.5px}
+.pend{margin-bottom:12px}
+dl.det{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:12px 0}dl.det dt{color:var(--mut)}dl.det dd{margin:0;min-width:0;overflow-wrap:anywhere}
 </style>
 
 <header>
@@ -82,137 +85,179 @@ label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut)
     <button type="button" data-v="empresas" id="nav-empresas">Empresas</button>
     <button type="button" data-v="procesos" id="nav-procesos">Procesos</button>
   </nav>
+  <button type="button" class="pri" id="btnNueva">+ Nueva tarea</button>
   <span class="sp"></span>
   <span class="live" id="live">conectando…</span>
 </header>
 <main id="app"></main>
 <datalist id="dl-resp"></datalist>
 <dialog id="dlg"></dialog>
+<dialog id="dlg2"></dialog>
 <div id="toast" role="status" hidden></div>
 
 <script>
 "use strict";
-const PER = ["Semanal","Quincenal","Mensual","Trimestral","Anual"], NA = "No aplica";
+/* Modelo: cada tarea recurrente es una SECUENCIA (colección `secuencias`).
+   La fecha elegida por el usuario es el ancla; la periodicidad genera el resto:
+   Semanal = mismo día de la semana · Quincenal = cada 14 días · Mensual = mismo día del mes
+   (Trimestral = cada 3 meses, Anual = cada año, Única = una sola vez).
+   tramos[{desde,ancla}] guardan los cambios de regla ("Toda la secuencia") sin crear otra secuencia;
+   ex{fechaOriginal:{d}} guardan los cambios de "Solo este día"; est{fechaOriginal:{e,n,r}} el estado de cada repetición. */
+const PER = ["Semanal","Quincenal","Mensual","Trimestral","Anual"], NA = "No aplica", UNICA = "Única";
 const ESTADOS = ["Pendiente","En curso","Bloqueada","Hecha"];
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-const DOW = ["","Lun","Mar","Mié","Jue","Vie","Sáb","Dom"], DOWL = ["","lun","mar","mié","jue","vie","sáb","dom"];
-const FLD = {Semanal:["dow"],Quincenal:["d1","d2"],Mensual:["dia"],Trimestral:["dia"],Anual:["dia"]};
-const RNG = {dow:[1,5],d1:[1,15],d2:[16,31],dia:[1,31]};
-const FLBL = {d1:"1ª quinc.",d2:"2ª quinc.",dia:"día",dow:"día"};
+const DOWL = ["","lun","mar","mié","jue","vie","sáb","dom"], DOWF = ["","lunes","martes","miércoles","jueves","viernes","sábado","domingo"];
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clone = o=>JSON.parse(JSON.stringify(o));
 const pad = n=>String(n).padStart(2,"0");
 const iso = (y,m,d)=>`${y}-${pad(m)}-${pad(d)}`;
 const lastDay = (y,m)=>new Date(Date.UTC(y,m,0)).getUTCDate();
-const clamp = (n,a,b)=>Math.min(b,Math.max(a,n));
+const T = s=>Date.parse(s+"T00:00:00Z");
+const addDays = (s,n)=>new Date(T(s)+n*864e5).toISOString().slice(0,10);
+const wd = s=>new Date(T(s)).getUTCDay()||7;
 const today = (()=>{const n=new Date();return iso(n.getFullYear(),n.getMonth()+1,n.getDate())})();
+const fmtDue = s=>`${DOWL[wd(s)]} ${s.slice(8)}/${s.slice(5,7)}`;
+const fmtFull = s=>`${s.slice(8)}/${s.slice(5,7)}/${s.slice(0,4)}`;
+const validISO = s=>/^\d{4}-\d{2}-\d{2}$/.test(s||"")&&!isNaN(T(s));
 
-const S = {emp:[],cat:[],t:{},tExists:false,mes:today.slice(0,7),view:"tablero",q:"",dirty:false,
-  f:{empresa:"",resp:"",proceso:"",per:"",estado:"",ocultar:false,agrupar:true},
-  ready:{emp:false,cat:false,t:false},canWrite:true,db:null,fail:""};
-
-/* ---------- periodos y fechas límite ---------- */
-// Cada periodo sabe calcular su fecha límite a partir de la regla {dia}|{d1,d2}|{dow}.
-function periodos(per,mes){
-  const [y,m]=mes.split("-").map(Number), last=lastDay(y,m), num=v=>Number.isFinite(v)?v:null;
-  if(per==="Mensual") return [{key:`M-${mes}`,label:`${MESES[m-1]} ${y}`,lo:iso(y,m,1),hi:iso(y,m,last),due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}];
-  if(per==="Quincenal") return [
-    {key:`Q-${mes}-1`,label:"1ª quincena (1–15)",lo:iso(y,m,1),hi:iso(y,m,15),due:v=>num(v.d1)&&iso(y,m,clamp(v.d1,1,15))},
-    {key:`Q-${mes}-2`,label:`2ª quincena (16–${last})`,lo:iso(y,m,16),hi:iso(y,m,last),due:v=>num(v.d2)&&iso(y,m,clamp(v.d2,16,last))}];
-  if(per==="Trimestral") return m%3===0?[{key:`T-${y}-${m/3}`,label:`Trimestre ${m/3} ${y}`,lo:iso(y,m-2,1),hi:iso(y,m,last),due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
-  if(per==="Anual") return m===12?[{key:`A-${y}`,label:`Año ${y}`,lo:iso(y,1,1),hi:iso(y,12,31),due:v=>num(v.dia)&&iso(y,m,clamp(v.dia,1,last))}]:[];
-  if(per==="Semanal"){
-    const out=[];
-    for(let d=1;d<=last;d++){
-      const mon=new Date(Date.UTC(y,m-1,d)); if(mon.getUTCDay()!==1) continue;
-      const fmt=x=>`${pad(x.getUTCDate())}/${pad(x.getUTCMonth()+1)}`, end=new Date(mon.getTime()+6*864e5);
-      out.push({key:`W-${mon.toISOString().slice(0,10)}`,label:`Semana ${fmt(mon)}–${fmt(end)}`,lo:mon.toISOString().slice(0,10),hi:new Date(mon.getTime()+4*864e5).toISOString().slice(0,10),
-        due:v=>num(v.dow)&&new Date(mon.getTime()+(clamp(v.dow,1,7)-1)*864e5).toISOString().slice(0,10)});
-    }
+/* ---------- motor de recurrencia ---------- */
+function addMonthsClamp(anc,n){
+  const [y,m,d]=anc.split("-").map(Number), t=(m-1)+n, yy=y+Math.floor(t/12), mm=((t%12)+12)%12+1;
+  return iso(yy,mm,Math.min(d,lastDay(yy,mm)));
+}
+// Fechas de una regla (per + ancla) dentro de [lo,hi]. Mensual conserva el día; si el mes es más corto usa su último día.
+function gen(per,anc,lo,hi){
+  const out=[]; if(lo>hi) return out;
+  if(per===UNICA){ if(anc>=lo&&anc<=hi) out.push(anc); return out }
+  if(per==="Semanal"||per==="Quincenal"){
+    const st=per==="Semanal"?7:14;
+    for(let k=Math.max(0,Math.ceil((T(lo)-T(anc))/(st*864e5)));;k++){const x=addDays(anc,k*st);if(x>hi)break;out.push(x)}
     return out;
   }
-  return [];
+  const step=per==="Mensual"?1:per==="Trimestral"?3:12;
+  const [ay,am]=anc.split("-").map(Number), [ly,lm]=lo.split("-").map(Number);
+  for(let n=Math.max(0,Math.floor(((ly*12+lm)-(ay*12+am))/step)-1);;n++){
+    const x=addMonthsClamp(anc,n*step); if(x>hi)break; if(x>=lo)out.push(x);
+  }
+  return out;
 }
-const effVenc=(a,c)=>({...(c.venc?.[a.per]||{}),...(a.venc||{})});
-const fmtDue=s=>{const d=new Date(s+"T00:00:00Z");return `${DOWL[d.getUTCDay()||7]} ${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}`};
-const daysTo=s=>Math.round((new Date(s+"T00:00:00Z")-new Date(today+"T00:00:00Z"))/864e5);
+const tramosOf=q=>[...(q.tramos||[])].sort((a,b)=>a.desde.localeCompare(b.desde));
+function occs(q,per,from,to){
+  const tr=tramosOf(q), out=[];
+  tr.forEach((t,i)=>{
+    const end=tr[i+1]?addDays(tr[i+1].desde,-1):"9999-12-31";
+    gen(per,t.ancla,t.desde>from?t.desde:from,end<to?end:to).forEach(x=>out.push(x));
+  });
+  return out;
+}
+const anclaAt=(q,occ)=>{const tr=tramosOf(q).filter(t=>t.desde<=occ);return (tr[tr.length-1]||q.tramos[0]).ancla};
+function ruleText(per,anc){
+  const [,m,d]=anc.split("-").map(Number);
+  return per==="Semanal"?`cada ${DOWF[wd(anc)]}`:per==="Quincenal"?"cada 14 días":per==="Mensual"?`día ${d} de cada mes`
+    :per==="Trimestral"?`día ${d} cada 3 meses`:per==="Anual"?`cada ${d} de ${MESES[m-1]}`:"una sola vez";
+}
+
+/* ---------- estado ---------- */
+const S={emp:[],cat:[],seq:[],view:"tablero",mes:today.slice(0,7),q:"",dirty:false,showPend:false,
+  f:{empresa:"",resp:"",proceso:"",per:"",estado:"",ocultar:false,agrupar:true},
+  ready:{emp:false,cat:false,seq:false},canWrite:true,db:null,fail:""};
+const perOf=(q,a)=>q.origen==="manual"?q.per:a?.per;
 
 function tareas(){
-  const out=[];
-  for(const e of S.emp){
-    if(e.estado!=="Activo") continue;
-    for(const a of e.procesos||[]){
-      const c=S.cat.find(x=>x.id===a.p); if(!c||a.per===NA) continue;
-      for(const pr of periodos(a.per,S.mes)){
-        const id=`${e.id}_${a.p}_${pr.key}`, s=S.t[id]||{};
-        const due=(s.d&&s.d>=pr.lo&&s.d<=pr.hi?s.d:pr.due(effVenc(a,c)))||null;
-        const estado=s.e||"Pendiente";
-        out.push({id,e,c,a,pr,due,estado,nota:s.n||"",resp:s.r||a.resp||"",over:!!s.r,
-          late:!!due&&estado!=="Hecha"&&due<today});
-      }
+  const [y,m]=S.mes.split("-").map(Number), lo=iso(y,m,1), hi=iso(y,m,lastDay(y,m)), out=[];
+  for(const q of S.seq){
+    if(!(q.tramos||[]).length) continue;
+    const manual=q.origen==="manual", e=S.emp.find(x=>x.id===q.empresa);
+    let a=null; if(!manual){ if(!e||e.estado!=="Activo") continue; a=(e.procesos||[]).find(p=>p.p===q.proceso); if(!a||a.per===NA) continue }
+    const per=perOf(q,a); if(!per) continue;
+    const c=S.cat.find(x=>x.id===q.proceso), nombre=manual?q.nombre:(c?c.nombre:q.proceso);
+    const cand=new Set(occs(q,per,addDays(lo,-45),addDays(hi,45)));
+    for(const k of Object.keys(q.ex||{})) if(!cand.has(k)&&occs(q,per,k,k).length) cand.add(k);
+    for(const occ of cand){
+      const eff=q.ex?.[occ]?.d||occ; if(eff<lo||eff>hi) continue;
+      const s=q.est?.[occ]||{}, estado=s.e||"Pendiente";
+      out.push({id:`${q.id}_${occ}`,q,occ,eff,per,e,a,c,nombre,manual,estado,nota:s.n||"",
+        resp:s.r||q.resp||a?.resp||"",late:estado!=="Hecha"&&eff<today,orig:occ===tramosOf(q)[0].ancla,
+        regla:ruleText(per,eff!==occ&&tramosOf(q).some(x=>x.ancla===eff&&x.desde>occ)?eff:anclaAt(q,occ))});
     }
   }
+  return out;
+}
+// Asignaciones activas empresa×proceso que todavía no tienen fecha de inicio (no generan tareas).
+function pendientes(){
+  const out=[];
+  for(const e of S.emp){ if(e.estado!=="Activo") continue;
+    for(const a of e.procesos||[]){ if(a.per===NA) continue;
+      const c=S.cat.find(x=>x.id===a.p); if(!c||S.seq.some(q=>q.id===`${e.id}_${a.p}`)) continue;
+      out.push({e,a,c}) } }
   return out;
 }
 
 /* ---------- utilidades de UI ---------- */
 const opts=(arr,sel,blank)=>(blank!==undefined?`<option value="">${esc(blank)}</option>`:"")+arr.map(v=>`<option${v===sel?" selected":""}>${esc(v)}</option>`).join("");
 const uniq=a=>[...new Set(a.filter(Boolean).map(String))].sort((x,y)=>x.localeCompare(y,"es"));
-let toastT; function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,4000)}
+let toastT; function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,6000)}
 let chain=Promise.resolve();
 const enqueue=fn=>{chain=chain.then(fn).catch(e=>toast("No se pudo guardar: "+(e?.message||e?.code||"error")))};
+const dis=()=>S.canWrite?"":" disabled";
 function setResp(){
-  const names=uniq([...S.emp.flatMap(e=>[e.finanzas,e.contabilidad,...(e.procesos||[]).map(a=>a.resp)]),...Object.values(S.t).map(t=>t.r)]);
+  const names=uniq([...S.emp.flatMap(e=>[e.finanzas,e.contabilidad,...(e.procesos||[]).map(a=>a.resp)]),...S.seq.map(q=>q.resp)]);
   $("#dl-resp").innerHTML=names.map(n=>`<option value="${esc(n)}">`).join("");
 }
-const dis=()=>S.canWrite?"":" disabled";
-
-// Campo de fecha límite según periodicidad: día de la semana, día del mes, o dos días (quincenal).
-function vfield(per,f,val,ph,attrs){
-  const [lo,hi]=RNG[f], lab=per==="Semanal"||f==="dia"?"vence":FLBL[f];
-  const ctl=f==="dow"
-    ?`<select ${attrs} aria-label="Día de la semana"><option value="">${esc(ph||"sin fecha")}</option>${DOW.slice(1,6).map((d,i)=>`<option value="${i+1}"${+val===i+1?" selected":""}>${d}</option>`).join("")}</select>`
-    :`<input type="number" inputmode="numeric" min="${lo}" max="${hi}" ${attrs} aria-label="${FLBL[f]}" placeholder="${esc(ph||lo+"–"+hi)}" value="${val??""}">`;
-  return `<label>${lab}${ctl}</label>`;
-}
-const readV=el=>{const n=parseInt(el.value,10);return Number.isFinite(n)&&el.value!==""?n:null};
+const loading=()=>!(S.ready.emp&&S.ready.cat&&S.ready.seq);
+const shell=inner=>S.fail?`<div class="empty">${esc(S.fail)}</div>`:inner;
+const empOpts=sel=>S.emp.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(e=>`<option value="${esc(e.id)}"${sel===e.id?" selected":""}>${esc(e.nombre)}</option>`).join("");
+const seqDoc=(o)=>({...o,ex:o.ex||{},est:o.est||{}});
+function crearSecuencia(id,o){ enqueue(()=>S.db.doc("secuencias/"+id).set(seqDoc(o))); }
 
 /* ---------- vistas ---------- */
-function shell(inner){return S.fail?`<div class="empty">${esc(S.fail)}</div>`:inner}
-function loading(){return !(S.ready.emp&&S.ready.cat)}
+function dayCtl(t){
+  const at=`data-day="1" data-sid="${esc(t.q.id)}" data-occ="${t.occ}" id="dy-${esc(t.id)}" aria-label="Día de realización"${dis()}`;
+  if(t.per==="Semanal"){
+    const mon=addDays(t.eff,-(wd(t.eff)-1)), days=[0,1,2,3,4].map(i=>addDays(mon,i)); if(!days.includes(t.eff)) days.push(t.eff);
+    return `<select ${at}>${days.map(x=>`<option value="${x}"${x===t.eff?" selected":""}>${fmtDue(x)}</option>`).join("")}</select>`;
+  }
+  return `<input type="date" ${at} value="${t.eff}">`;
+}
 
 function vTablero(){
-  const all=tareas(), f=S.f;
-  const [y,m]=S.mes.split("-").map(Number);
+  const all=tareas(), f=S.f, [y,m]=S.mes.split("-").map(Number);
   const resps=uniq(all.map(t=>t.resp));
-  const ts=all.filter(t=>(!f.empresa||t.e.id===f.empresa)&&(!f.proceso||t.c.id===f.proceso)&&(!f.per||t.a.per===f.per)
+  const ts=all.filter(t=>(!f.empresa||t.q.empresa===f.empresa)&&(!f.proceso||t.q.proceso===f.proceso)&&(!f.per||t.per===f.per)
     &&(!f.resp||t.resp===f.resp)&&(!f.estado||(f.estado==="Vencidas"?t.late:t.estado===f.estado))&&!(f.ocultar&&t.estado==="Hecha"));
   const cnt=s=>all.filter(t=>t.estado===s).length, late=all.filter(t=>t.late).length;
   const pct=all.length?Math.round(cnt("Hecha")/all.length*100):0;
-  const ord=t=>S.cat.findIndex(c=>c.id===t.c.id);
+  const ename=t=>t.e?.nombre||"(sin empresa)", ord=t=>{const i=S.cat.findIndex(c=>c.id===t.q.proceso);return i<0?99:i};
   ts.sort(f.agrupar
-    ?(a,b)=>a.e.nombre.localeCompare(b.e.nombre,"es")||ord(a)-ord(b)||a.pr.key.localeCompare(b.pr.key)
-    :(a,b)=>(a.due||"9").localeCompare(b.due||"9")||a.e.nombre.localeCompare(b.e.nombre,"es")||ord(a)-ord(b));
-  let rows="",last=null; const cols=f.agrupar?7:8;
+    ?(a,b)=>ename(a).localeCompare(ename(b),"es")||ord(a)-ord(b)||a.nombre.localeCompare(b.nombre,"es")||a.eff.localeCompare(b.eff)
+    :(a,b)=>a.eff.localeCompare(b.eff)||ename(a).localeCompare(ename(b),"es")||ord(a)-ord(b));
+  const cols=f.agrupar?8:9; let rows="",last=null;
   for(const t of ts){
-    if(f.agrupar&&last!==t.e.id){last=t.e.id;
-      rows+=`<tr class="grp"><td colspan="${cols}">${esc(t.e.nombre)} <span class="mut" style="font-weight:400">· ${esc(t.e.grupo||"sin grupo")} · Finanzas: ${esc(t.e.finanzas||"—")} · Contabilidad: ${esc(t.e.contabilidad||"—")}</span></td></tr>`}
-    const d=t.due?daysTo(t.due):null, day=`data-day="${esc(t.id)}" id="dy-${esc(t.id)}" aria-label="Día de realización"${dis()}`;
-    const ctl=t.a.per==="Semanal"
-      ?`<select ${day}><option value="">Sin día</option>${[0,1,2,3,4].map(i=>{const x=new Date(new Date(t.pr.lo+"T00:00:00Z").getTime()+i*864e5).toISOString().slice(0,10);return `<option value="${x}"${x===t.due?" selected":""}>${fmtDue(x)}</option>`}).join("")}</select>`
-      :`<input type="date" ${day} min="${t.pr.lo}" max="${t.pr.hi}" value="${t.due||""}">`;
-    const dueCell=`<div class="dayc${t.late?" late":""}">${ctl}${t.late?`<small class="due late">vencida</small>`:(t.estado!=="Hecha"&&d===0?`<small class="due soon">hoy</small>`:"")}</div>`;
-    rows+=`<tr class="${t.estado==="Hecha"?"done":""}">${f.agrupar?"":`<td>${esc(t.e.nombre)}</td>`}
-      <td>${esc(t.c.nombre)}</td><td><span class="tag rep" title="Tarea recurrente">↻ ${t.a.per}</span></td>
-      <td>${esc(t.pr.label)}</td><td class="keep">${dueCell}</td>
-      <td class="keep"><select class="st st-${t.estado.replace(" ","-")}" data-est="${esc(t.id)}" id="est-${esc(t.id)}" aria-label="Estado"${dis()}>${opts(ESTADOS,t.estado)}</select></td>
-      <td class="keep"><input class="r" list="dl-resp" data-resp="${esc(t.id)}" data-def="${esc(t.a.resp||"")}" id="rsp-${esc(t.id)}" aria-label="Responsable" value="${esc(t.resp)}" placeholder="Asignar"${dis()}></td>
-      <td class="keep"><input class="n" data-nota="${esc(t.id)}" id="nt-${esc(t.id)}" aria-label="Nota" value="${esc(t.nota)}" placeholder="Nota"${dis()}></td></tr>`;
+    const gid=t.q.empresa||"_";
+    if(f.agrupar&&last!==gid){last=gid;
+      rows+=`<tr class="grp"><td colspan="${cols}">${esc(ename(t))} <span class="mut" style="font-weight:400">${t.e?`· ${esc(t.e.grupo||"sin grupo")} · Finanzas: ${esc(t.e.finanzas||"—")} · Contabilidad: ${esc(t.e.contabilidad||"—")}`:""}</span></td></tr>`}
+    const d=Math.round((T(t.eff)-T(today))/864e5);
+    const flag=t.late?`<small class="due late">vencida</small>`:(t.estado!=="Hecha"&&d===0?`<small class="due soon">hoy</small>`:"");
+    rows+=`<tr class="${t.estado==="Hecha"?"done":""}">${f.agrupar?"":`<td>${esc(ename(t))}</td>`}
+      <td>${esc(t.nombre)}${t.manual&&t.c?`<div class="mut" style="font-size:12px">${esc(t.c.nombre)}</div>`:""}${t.orig?` <span class="tag" title="Primera tarea de la secuencia">original</span>`:""}</td>
+      <td><span class="tag rep" title="Tarea recurrente">${t.per===UNICA?"única":"↻ "+t.per}</span></td>
+      <td class="mut">${esc(t.regla)}</td>
+      <td class="keep"><div class="dayc${t.late?" late":""}">${dayCtl(t)}${flag}</div></td>
+      <td class="keep"><select class="st st-${t.estado.replace(" ","-")}" data-est="1" data-sid="${esc(t.q.id)}" data-occ="${t.occ}" id="est-${esc(t.id)}" aria-label="Estado"${dis()}>${opts(ESTADOS,t.estado)}</select></td>
+      <td class="keep"><input class="r" list="dl-resp" data-resp="1" data-sid="${esc(t.q.id)}" data-occ="${t.occ}" data-def="${esc(t.q.resp||t.a?.resp||"")}" id="rsp-${esc(t.id)}" aria-label="Responsable" value="${esc(t.resp)}" placeholder="Asignar"${dis()}></td>
+      <td class="keep"><input class="n" data-nota="1" data-sid="${esc(t.q.id)}" data-occ="${t.occ}" id="nt-${esc(t.id)}" aria-label="Nota" value="${esc(t.nota)}" placeholder="Nota"></td>
+      <td class="keep"><button type="button" data-det="${esc(t.q.id)}" data-occ="${t.occ}" aria-label="Detalle de la secuencia" title="Secuencia">⋯</button></td></tr>`;
   }
-  const body=loading()||!S.ready.t?`<tr><td colspan="9" class="empty">Cargando tareas…</td></tr>`
-    :all.length===0?`<tr><td colspan="9" class="empty">No hay tareas en ${MESES[m-1]} ${y}. Se generan desde Empresas según la periodicidad de cada proceso.</td></tr>`
+  const pend=pendientes().filter(p=>(!f.empresa||p.e.id===f.empresa)&&(!f.proceso||p.c.id===f.proceso)&&(!f.per||p.a.per===f.per)&&(!f.resp||p.a.resp===f.resp));
+  const body=loading()?`<tr><td colspan="9" class="empty">Cargando tareas…</td></tr>`
+    :all.length===0?`<tr><td colspan="9" class="empty">No hay tareas en ${MESES[m-1]} ${y}. Crea una con “+ Nueva tarea” o asigna fecha de inicio a los procesos de cada empresa.</td></tr>`
     :ts.length===0?`<tr><td colspan="9" class="empty">Ninguna tarea coincide con los filtros.</td></tr>`:rows;
+  const pendHTML=!loading()&&pend.length?`<div class="pend"><button type="button" data-pend="1" id="btnPend">${pend.length} procesos sin fecha de inicio ${S.showPend?"▴":"▾"}</button>
+    ${S.showPend?`<div class="tbl" style="margin-top:8px"><table style="min-width:600px"><thead><tr><th>Empresa</th><th>Proceso</th><th>Periodicidad</th><th>Fecha de inicio</th></tr></thead><tbody>
+    ${pend.map(p=>`<tr><td>${esc(p.e.nombre)}</td><td>${esc(p.c.nombre)}</td><td><span class="tag rep">↻ ${p.a.per}</span></td>
+      <td><input type="date" data-start="1" data-eid="${esc(p.e.id)}" data-pid="${esc(p.c.id)}" id="st-${esc(p.e.id)}-${esc(p.c.id)}" aria-label="Fecha de inicio"${dis()}></td></tr>`).join("")}</tbody></table></div>
+    <p class="note" style="padding-inline:0">Elige la fecha: ese día define la regla (semanal = ese día de la semana, quincenal = cada 14 días, mensual = ese día del mes) y se generan las repeticiones.</p>`:""}</div>`:"";
   return `
   <div class="bar"><div class="month"><button type="button" data-mes="-1" aria-label="Mes anterior">◀</button><b>${MESES[m-1]} ${y}</b><button type="button" data-mes="1" aria-label="Mes siguiente">▶</button>
     <button type="button" data-mes="0">Hoy</button></div>
@@ -220,16 +265,17 @@ function vTablero(){
   <div class="kpis"><div class="kpi"><b>${all.length}</b><span>Tareas del mes</span></div>
     ${ESTADOS.map(s=>`<div class="kpi"><b class="st-${s.replace(" ","-")}">${cnt(s)}</b><span>${s}</span></div>`).join("")}
     <div class="kpi"><b style="color:${late?"var(--bad)":"inherit"}">${late}</b><span>Vencidas</span></div></div>
+  ${pendHTML}
   <div class="bar">
-    <select data-f="empresa" id="flt-empresa" aria-label="Empresa"><option value="">Todas las empresas</option>${S.emp.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(e=>`<option value="${esc(e.id)}"${f.empresa===e.id?" selected":""}>${esc(e.nombre)}</option>`).join("")}</select>
+    <select data-f="empresa" id="flt-empresa" aria-label="Empresa"><option value="">Todas las empresas</option>${empOpts(f.empresa)}</select>
     <select data-f="resp" id="flt-resp" aria-label="Responsable">${opts(resps,f.resp,"Todos los responsables")}</select>
     <select data-f="proceso" id="flt-proceso" aria-label="Proceso"><option value="">Todos los procesos</option>${S.cat.map(c=>`<option value="${esc(c.id)}"${f.proceso===c.id?" selected":""}>${esc(c.nombre)}</option>`).join("")}</select>
-    <select data-f="per" id="flt-per" aria-label="Periodicidad">${opts(PER,f.per,"Toda periodicidad")}</select>
+    <select data-f="per" id="flt-per" aria-label="Periodicidad">${opts([...PER,UNICA],f.per,"Toda periodicidad")}</select>
     <select data-f="estado" id="flt-estado" aria-label="Estado">${opts([...ESTADOS,"Vencidas"],f.estado,"Todo estado")}</select>
     <label style="flex-direction:row;align-items:center;gap:5px"><input type="checkbox" data-c="ocultar" id="flt-ocultar"${f.ocultar?" checked":""}> Ocultar hechas</label>
     <label style="flex-direction:row;align-items:center;gap:5px"><input type="checkbox" data-c="agrupar" id="flt-agrupar"${f.agrupar?" checked":""}> Agrupar por empresa</label></div>
-  <div class="tbl"><table><thead><tr>${f.agrupar?"":"<th>Empresa</th>"}<th>Proceso</th><th>Periodicidad</th><th>Período</th><th>Día (inicio y vence)</th><th>Estado</th><th>Responsable</th><th>Nota</th></tr></thead><tbody>${body}</tbody></table></div>
-  <p class="note">Día: cada tarea se hace ese día, que es su inicio y su vencimiento. Semanal se elige lun–vie de esa semana; quincenal y mensual, cualquier fecha del período. Sin elegir, se usa el día predeterminado del proceso. Responsable: por defecto el de la empresa/proceso; si lo cambias aquí aplica solo a esta tarea.</p>`;
+  <div class="tbl"><table style="min-width:900px"><thead><tr>${f.agrupar?"":"<th>Empresa</th>"}<th>Tarea</th><th>Periodicidad</th><th>Se repite</th><th>Día (inicio y vence)</th><th>Estado</th><th>Responsable</th><th>Nota</th><th></th></tr></thead><tbody>${body}</tbody></table></div>
+  <p class="note">Al cambiar el día de una tarea recurrente se pregunta si el cambio es solo para ese día o para toda la secuencia.</p>`;
 }
 
 function vEmpresas(){
@@ -245,65 +291,149 @@ function vEmpresas(){
 }
 
 function vProcesos(){
-  const uso=id=>S.emp.filter(e=>(e.procesos||[]).some(a=>a.p===id&&a.per!==NA)).length;
-  const rows=S.cat.map(c=>`<tr><td><b>${esc(c.nombre)}</b><div class="mut" style="font-size:12px">${uso(c.id)} empresas</div></td>
-    ${PER.map(p=>`<td><div class="pv" style="display:flex;gap:6px;flex-wrap:wrap">${FLD[p].map(f=>vfield(p,f,c.venc?.[p]?.[f],"",`data-cv="1" data-pid="${esc(c.id)}" data-per="${p}" data-f="${f}" id="cv-${esc(c.id)}-${p}-${f}"${dis()}`)).join("")}</div></td>`).join("")}</tr>`).join("");
-  return `<div class="bar"><h2>Procesos y día predeterminado</h2></div>
-  <p class="note" style="padding-inline:0">Define una vez el día en que se hace cada proceso según su periodicidad y se repite en cada período; ese día es inicio y vencimiento. Cada empresa puede cambiarlo en su ficha, y cada tarea en el tablero. Semanal: día de lunes a viernes. Quincenal: un día en cada quincena. Mensual, Trimestral y Anual: día del mes (si el mes es más corto, se usa el último día).</p>
-  <div class="tbl"><table style="min-width:900px"><thead><tr><th>Proceso</th>${PER.map(p=>`<th>${p}</th>`).join("")}</tr></thead>
-  <tbody>${loading()?`<tr><td colspan="6" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>`;
+  const pend=pendientes();
+  const rows=S.cat.map(c=>{
+    const uso=S.emp.filter(e=>e.estado==="Activo"&&(e.procesos||[]).some(a=>a.p===c.id&&a.per!==NA)).length, np=pend.filter(p=>p.c.id===c.id).length;
+    return `<tr><td><b>${esc(c.nombre)}</b></td><td>${uso}</td><td>${np}</td>
+      <td><div class="dayc"><input type="date" id="ap-${esc(c.id)}" aria-label="Fecha de inicio para ${esc(c.nombre)}"${dis()}><button type="button" data-apply="${esc(c.id)}"${np&&S.canWrite?"":" disabled"}>Aplicar a ${np} empresas</button></div></td></tr>`}).join("");
+  return `<div class="bar"><h2>Procesos</h2></div>
+  <p class="note" style="padding-inline:0">Para arrancar rápido: elige una fecha de inicio por proceso y aplícala a todas las empresas que aún no la tienen. Cada empresa toma su propia periodicidad (semanal = ese día de la semana, quincenal = cada 14 días, mensual = ese día del mes). Después ajusta tarea por tarea desde el tablero.</p>
+  <div class="tbl"><table style="min-width:640px"><thead><tr><th>Proceso</th><th>Empresas activas</th><th>Sin fecha de inicio</th><th>Fecha de inicio</th></tr></thead>
+  <tbody>${loading()?`<tr><td colspan="4" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>`;
 }
 
 /* ---------- ficha de empresa ---------- */
 const CAMPOS=[["nombre","Nombre"],["grupo","Grupo"],["rut","RUT"],["tipo","Tipo"],["complejidad","Complejidad"],["servicio","Servicio"],["finanzas","Finanzas (informativo)"],["contabilidad","Contabilidad (informativo)"],["carga","Carga"]];
-function pvHTML(c,a,pid){
-  if(a.per===NA) return "";
-  return FLD[a.per].map(f=>{const d=c.venc?.[a.per]?.[f];
-    return vfield(a.per,f,a.venc?.[f],d!=null?(f==="dow"?"predet. "+DOW[d]:"predet. "+d):"",`data-vf="${f}" id="dv-${pid}-${f}"`)}).join("");
-}
 function editEmpresa(id){
   const nuevo=id==="new";
   const e=nuevo?{nombre:"",estado:"Activo",tipo:"Regular",procesos:[]}:clone(S.emp.find(x=>x.id===id));
-  const dlg=$("#dlg");
+  const dlg=$("#dlg"), docId=nuevo?"e"+Date.now().toString(36):id;
   const row=c=>{const a=(e.procesos||[]).find(p=>p.p===c.id)||{p:c.id,per:nuevo?"Mensual":NA};
+    const q=S.seq.find(x=>x.id===`${docId}_${c.id}`);
     return `<div class="prow" data-pid="${esc(c.id)}"><div class="pname">${esc(c.nombre)}</div>
     <select data-r="per" id="pp-${esc(c.id)}" aria-label="Periodicidad de ${esc(c.nombre)}">${opts([...PER,NA],a.per)}</select>
-    <div class="pv" data-r="v">${pvHTML(c,a,esc(c.id))}</div>
+    <div>${q?`<span class="mut">desde ${fmtFull(q.tramos[0].ancla)}</span>`:`<input type="date" data-r="start" id="ps-${esc(c.id)}" aria-label="Fecha de inicio de ${esc(c.nombre)}">`}</div>
     <input data-r="resp" list="dl-resp" id="pr-${esc(c.id)}" aria-label="Responsable de ${esc(c.nombre)}" placeholder="Responsable" value="${esc(a.resp||"")}"></div>`};
   dlg.innerHTML=`<h2>${nuevo?"Nueva empresa":"Editar empresa"}</h2>
   <div class="grid">${CAMPOS.map(([k,l])=>`<label>${l}<input data-k="${k}" id="fe-${k}" list="dl-${k}" value="${esc(e[k])}"></label>`).join("")}
    <label>Estado<select data-k="estado" id="fe-estado">${opts(["Activo","Inactivo"],e.estado)}</select></label></div>
   ${CAMPOS.map(([k])=>`<datalist id="dl-${k}">${uniq(S.emp.map(x=>x[k])).map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`).join("")}
   <h2 style="font-size:14px;margin-top:6px">Procesos, periodicidad y responsable</h2>
-  <p class="note" style="padding:2px 0 8px">Todos los procesos vienen incluidos. Cambia la periodicidad, o “No aplica” si esta empresa no lo requiere. Deja el día en blanco para usar el del proceso.</p>
-  <div class="hd"><span>Proceso</span><span>Periodicidad</span><span>Día predeterminado</span><span>Responsable</span></div>
+  <p class="note" style="padding:2px 0 8px">Todos los procesos vienen incluidos. Cambia la periodicidad, o “No aplica”. La fecha de inicio define la regla de repetición; una vez creada, se cambia desde el tablero.</p>
+  <div class="hd"><span>Proceso</span><span>Periodicidad</span><span>Fecha de inicio</span><span>Responsable</span></div>
   <div id="procs">${S.cat.map(row).join("")}</div>
   <div class="acts">${nuevo?"":`<button type="button" class="bad" id="delE" style="margin-right:auto"${dis()}>Eliminar empresa</button>`}<button type="button" id="cancel">Cancelar</button><button type="button" class="pri" id="ok"${dis()}>Guardar</button></div>`;
   $("#cancel",dlg).onclick=()=>dlg.close();
-  $("#procs",dlg).onchange=ev=>{
-    if(ev.target.dataset.r!=="per") return;
-    const r=ev.target.closest(".prow"), c=S.cat.find(x=>x.id===r.dataset.pid);
-    $("[data-r=v]",r).innerHTML=pvHTML(c,{per:ev.target.value},esc(c.id));
-  };
   const del=$("#delE",dlg);
   if(del) del.onclick=()=>{
     if(!del.classList.contains("armed")){del.classList.add("armed");del.textContent="¿Seguro? Confirmar eliminación";return}
-    enqueue(()=>S.db.doc("empresas/"+id).delete()); dlg.close();
+    enqueue(async()=>{await S.db.doc("empresas/"+id).delete();for(const q of S.seq.filter(x=>x.empresa===id))await S.db.doc("secuencias/"+q.id).delete()});
+    dlg.close();
   };
   $("#ok",dlg).onclick=()=>{
     dlg.querySelectorAll("[data-k]").forEach(i=>e[i.dataset.k]=i.value.trim());
     if(!e.nombre) return toast("El nombre es obligatorio.");
     e.carga=Number(e.carga)||0;
+    const starts=[];
     e.procesos=[...dlg.querySelectorAll(".prow")].map(r=>{
-      const per=$("[data-r=per]",r).value, a={p:r.dataset.pid,per}, resp=$("[data-r=resp]",r).value.trim();
+      const per=$("[data-r=per]",r).value, a={p:r.dataset.pid,per}, resp=$("[data-r=resp]",r).value.trim(), st=$("[data-r=start]",r)?.value;
       if(resp) a.resp=resp;
-      if(per!==NA){const v={};r.querySelectorAll("[data-vf]").forEach(el=>{const n=readV(el);if(n!=null)v[el.dataset.vf]=clamp(n,...RNG[el.dataset.vf])});if(Object.keys(v).length)a.venc=v}
+      if(per!==NA&&validISO(st)) starts.push([r.dataset.pid,st]);
       return a;
     });
-    const docId=nuevo?"e"+Date.now().toString(36):id;
-    enqueue(()=>S.db.doc("empresas/"+docId).set(e)); dlg.close();
+    enqueue(async()=>{
+      await S.db.doc("empresas/"+docId).set(e);
+      for(const [pid,st] of starts) await S.db.doc(`secuencias/${docId}_${pid}`).set(seqDoc({origen:"proceso",empresa:docId,proceso:pid,tramos:[{desde:st,ancla:st}]}));
+    });
+    dlg.close();
   };
   dlg.showModal();
+}
+
+/* ---------- nueva tarea ---------- */
+function nuevaTarea(){
+  const dlg=$("#dlg");
+  dlg.innerHTML=`<h2>Nueva tarea</h2>
+  <div class="grid">
+    <label style="grid-column:1/-1">Nombre de la tarea *<input id="nt-nombre" autocomplete="off"></label>
+    <label>Empresa *<select id="nt-empresa"><option value="">Selecciona una empresa…</option>${empOpts("")}</select></label>
+    <label>Proceso<select id="nt-proceso"><option value="">— Sin proceso —</option>${S.cat.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join("")}</select></label>
+    <label>Periodicidad *<select id="nt-per">${opts([...PER,UNICA],"Semanal")}</select></label>
+    <label>Fecha de inicio *<input type="date" id="nt-fecha" value="${today}"></label>
+    <label>Responsable<input id="nt-resp" list="dl-resp" autocomplete="off"></label></div>
+  <p class="note" id="nt-prev" style="padding:0"></p>
+  <div class="acts"><button type="button" id="cancel">Cancelar</button><button type="button" class="pri" id="ok"${dis()}>Crear tarea</button></div>`;
+  const prev=()=>{
+    const f=$("#nt-fecha").value, per=$("#nt-per").value;
+    $("#nt-prev").textContent=validISO(f)?`Se repetirá ${ruleText(per,f)}: ${gen(per,f,f,addDays(f,800)).slice(0,4).map(fmtFull).join(" · ")}${per===UNICA?"":" …"}`:"Elige la fecha de inicio.";
+  };
+  dlg.oninput=dlg.onchange=prev; prev();
+  $("#cancel",dlg).onclick=()=>dlg.close();
+  $("#ok",dlg).onclick=()=>{
+    const nombre=$("#nt-nombre").value.trim(), empresa=$("#nt-empresa").value, per=$("#nt-per").value, fecha=$("#nt-fecha").value;
+    if(!nombre) return toast("Escribe el nombre de la tarea.");
+    if(!empresa) return toast("Selecciona la empresa de la tarea.");
+    if(!validISO(fecha)) return toast("Elige la fecha de inicio.");
+    const o={origen:"manual",nombre,empresa,proceso:$("#nt-proceso").value,per,tramos:[{desde:fecha,ancla:fecha}],creada:today};
+    const r=$("#nt-resp").value.trim(); if(r) o.resp=r;
+    crearSecuencia("t"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),o);
+    S.mes=fecha.slice(0,7); dlg.close(); toast("Tarea creada."); render(true);
+  };
+  dlg.showModal();
+}
+
+/* ---------- cambio de fecha: solo este día / toda la secuencia ---------- */
+function moveSolo(q,occ,nd){ enqueue(()=>S.db.doc("secuencias/"+q.id).update({ex:{[occ]:{d:nd}}})); }
+function moveToda(q,per,occ,nd){
+  const list=occs(q,per,addDays(occ,-800),addDays(occ,800)).sort(), i=list.indexOf(occ);
+  const prev=list[i-1], next=list[i+1];
+  if((prev&&nd<=prev)||(next&&nd>=next)){
+    toast(`Con “Toda la secuencia” la nueva fecha debe quedar entre la repetición anterior (${prev?fmtFull(prev):"—"}) y la siguiente (${next?fmtFull(next):"—"}). Para moverla más lejos usa “Solo este día”.`);
+    return false;
+  }
+  const desde=addDays(nd>occ?nd:occ,1);
+  const tramos=tramosOf(q).filter(t=>t.desde<desde).concat([{desde,ancla:nd}]);
+  enqueue(()=>S.db.doc("secuencias/"+q.id).update({tramos,ex:{[occ]:{d:nd}}}));
+  return true;
+}
+function preguntarCambio(sid,occ,nd){
+  const q=S.seq.find(x=>x.id===sid); if(!q||!validISO(nd)){render(true);return}
+  const t=tareas().find(x=>x.q.id===sid&&x.occ===occ); if(!t||t.eff===nd){render(true);return}
+  if(t.per===UNICA){moveSolo(q,occ,nd);return}
+  const dlg=$("#dlg2");
+  dlg.innerHTML=`<h2>¿Qué deseas modificar?</h2>
+  <p><b>${esc(t.nombre)}</b> · ${esc(t.e?.nombre||"")}<br>Cambiar del <b>${fmtDue(t.eff)}</b> (${fmtFull(t.eff)}) al <b>${fmtDue(nd)}</b> (${fmtFull(nd)}).</p>
+  <div class="choice"><button type="button" class="pri" id="c-solo">Solo este día</button><small>Mueve únicamente esta tarea. Las demás repeticiones siguen ${esc(t.regla)}.</small></div>
+  <div class="choice"><button type="button" id="c-todo">Toda la secuencia</button><small>La nueva fecha es la regla desde ahora: ${esc(ruleText(t.per,nd))}. Cambian las repeticiones futuras; las anteriores no.</small></div>
+  <div class="acts"><button type="button" id="c-cancel">Cancelar</button></div>`;
+  let done=false; const fin=()=>{done=true;dlg.close()};
+  $("#c-solo",dlg).onclick=()=>{moveSolo(q,occ,nd);fin()};
+  $("#c-todo",dlg).onclick=()=>{if(moveToda(q,t.per,occ,nd))fin();else{fin();render(true)}};
+  $("#c-cancel",dlg).onclick=()=>{fin();render(true)};
+  dlg.onclose=()=>{if(!done)render(true)};
+  dlg.showModal();
+}
+
+/* ---------- detalle de secuencia ---------- */
+function detalle(sid,occ){
+  const q=S.seq.find(x=>x.id===sid); if(!q) return;
+  const t=tareas().find(x=>x.q.id===sid&&x.occ===occ)||{}; const per=t.per||q.per||"";
+  const e=S.emp.find(x=>x.id===q.empresa), c=S.cat.find(x=>x.id===q.proceso), dlg=$("#dlg2");
+  const tr=tramosOf(q), n=Object.keys(q.ex||{}).length;
+  dlg.innerHTML=`<h2>${esc(t.nombre||q.nombre||c?.nombre||"Secuencia")}</h2>
+  <dl class="det"><dt>Empresa</dt><dd>${esc(e?.nombre||"—")}</dd><dt>Proceso</dt><dd>${esc(c?.nombre||"—")}</dd>
+  <dt>Periodicidad</dt><dd>${esc(per)}</dd><dt>Id de secuencia</dt><dd class="mono">${esc(q.id)}</dd>
+  <dt>Tarea original</dt><dd>${fmtFull(tr[0].ancla)} (${DOWF[wd(tr[0].ancla)]})</dd>
+  <dt>Reglas</dt><dd>${tr.map(x=>`desde ${fmtFull(x.desde)}: ${esc(ruleText(per,x.ancla))}`).join("<br>")}</dd>
+  <dt>Días movidos</dt><dd>${n} ${n===1?"tarea":"tareas"} (solo ese día)</dd></dl>
+  <div class="acts"><button type="button" class="bad" id="delS" style="margin-right:auto"${dis()}>${q.origen==="manual"?"Eliminar secuencia":"Quitar fecha de inicio"}</button><button type="button" id="c-cancel">Cerrar</button></div>`;
+  $("#c-cancel",dlg).onclick=()=>dlg.close();
+  const b=$("#delS",dlg);
+  b.onclick=()=>{
+    if(!b.classList.contains("armed")){b.classList.add("armed");b.textContent="¿Seguro? Se pierde el estado de todas sus tareas";return}
+    enqueue(()=>S.db.doc("secuencias/"+sid).delete()); dlg.close();
+  };
+  dlg.onclose=null; dlg.showModal();
 }
 
 /* ---------- render y eventos ---------- */
@@ -314,34 +444,27 @@ function render(force){
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===S.view));
   const ro=S.canWrite?"":`<div class="ro">Solo lectura: tu acceso no permite editar. Pide permiso de Colaborador al dueño.</div>`;
   $("#app").innerHTML=shell(ro+{tablero:vTablero,empresas:vEmpresas,procesos:vProcesos}[S.view]());
+  $("#btnNueva").disabled=!S.canWrite||S.fail!==""||loading();
   setResp();
 }
 document.addEventListener("focusout",()=>{if(S.dirty)setTimeout(()=>render(),0)});
 $("#nav").onclick=e=>{if(e.target.dataset.v){S.view=e.target.dataset.v;render(true)}};
+$("#btnNueva").onclick=()=>nuevaTarea();
 
-function patchT(id,patch){
-  const mes=S.mes; if(!S.db) return;
-  enqueue(async()=>{
-    const ref=S.db.doc("estados/"+mes), body={t:{[id]:patch}};
-    if(S.tExists&&mes===S.mes) await ref.update(body); else await ref.set(body);
-    if(mes===S.mes) S.tExists=true;
-  });
-}
-function saveCat(pid,per,f,val){
-  const items=clone(S.cat), it=items.find(x=>x.id===pid); if(!it) return;
-  it.venc=it.venc||{}; it.venc[per]=it.venc[per]||{};
-  if(val==null) delete it.venc[per][f]; else it.venc[per][f]=clamp(val,...RNG[f]);
-  if(!Object.keys(it.venc[per]).length) delete it.venc[per];
-  enqueue(()=>S.db.doc("config/catalogo").set({items}));
+const patchEst=(sid,occ,patch)=>{ if(S.db) enqueue(()=>S.db.doc("secuencias/"+sid).update({est:{[occ]:patch}})) };
+function aplicarFecha(pid,fecha){
+  const list=pendientes().filter(p=>p.c.id===pid); if(!validISO(fecha)) return toast("Elige una fecha de inicio.");
+  for(const p of list) crearSecuencia(`${p.e.id}_${pid}`,{origen:"proceso",empresa:p.e.id,proceso:pid,tramos:[{desde:fecha,ancla:fecha}]});
+  toast(`Fecha de inicio aplicada a ${list.length} empresas.`);
 }
 const app=$("#app");
 app.addEventListener("change",e=>{
   const t=e.target,d=t.dataset;
-  if(d.est) patchT(d.est,{e:t.value});
-  else if(d.resp!==undefined){const v=t.value.trim();patchT(d.resp,{r:v===d.def?"":v})}
-  else if(d.nota!==undefined) patchT(d.nota,{n:t.value});
-  else if(d.day) patchT(d.day,{d:t.value});
-  else if(d.cv) saveCat(d.pid,d.per,d.f,readV(t));
+  if(d.day) preguntarCambio(d.sid,d.occ,t.value);
+  else if(d.est) patchEst(d.sid,d.occ,{e:t.value});
+  else if(d.resp){const v=t.value.trim();patchEst(d.sid,d.occ,{r:v===d.def?"":v})}
+  else if(d.nota) patchEst(d.sid,d.occ,{n:t.value});
+  else if(d.start){ if(validISO(t.value)) crearSecuencia(`${d.eid}_${d.pid}`,{origen:"proceso",empresa:d.eid,proceso:d.pid,tramos:[{desde:t.value,ancla:t.value}]}) }
   else if(d.f){S.f[d.f]=t.value;render(true)}
   else if(d.c){S.f[d.c]=t.checked;render(true)}
 });
@@ -352,21 +475,14 @@ app.addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
   if(b.dataset.mes!==undefined){
     const n=Number(b.dataset.mes), [y,m]=S.mes.split("-").map(Number);
-    S.mes=n===0?today.slice(0,7):new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7);
-    subMes(); render(true);
+    S.mes=n===0?today.slice(0,7):new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); render(true);
   } else if(b.dataset.edit) editEmpresa(b.dataset.edit);
+  else if(b.dataset.det) detalle(b.dataset.det,b.dataset.occ);
+  else if(b.dataset.pend){S.showPend=!S.showPend;render(true)}
+  else if(b.dataset.apply) aplicarFecha(b.dataset.apply,$("#ap-"+b.dataset.apply).value);
 });
 
 /* ---------- datos compartidos ---------- */
-let unMes=null;
-function subMes(){
-  if(unMes) unMes(); if(!S.db) return;
-  const mes=S.mes; S.t={};S.tExists=false;S.ready.t=false;
-  unMes=S.db.doc("estados/"+mes).onSnapshot(s=>{
-    if(mes!==S.mes) return;
-    S.tExists=s.exists;S.t=s.exists?(s.data().t||{}):{};S.ready.t=true;render();
-  },err=>{S.fail="No se pudieron leer las tareas ("+err.code+").";render(true)});
-}
 render(true);
 (async()=>{
   const live=$("#live");
@@ -379,7 +495,7 @@ render(true);
     const onErr=err=>{S.fail="No se pudieron leer los datos ("+err.code+").";live.textContent="sin conexión";render(true)};
     db.collection("empresas").onSnapshot(s=>{S.emp=s.docs.map(d=>({id:d.id,...d.data()}));S.ready.emp=true;live.textContent="en vivo";live.className="live ok";render()},onErr);
     db.doc("config/catalogo").onSnapshot(s=>{S.cat=s.exists?(s.data().items||[]):[];S.ready.cat=true;render()},onErr);
-    subMes();
+    db.collection("secuencias").onSnapshot(s=>{S.seq=s.docs.map(d=>({id:d.id,...d.data()}));S.ready.seq=true;render()},onErr);
   }catch(e){if(e)console.error(e);S.fail="Este visor no tiene acceso a los datos compartidos. Abre el artifact desde claude.ai.";live.textContent="sin datos";render(true)}
 })();
 </script>
