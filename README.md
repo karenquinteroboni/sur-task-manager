@@ -4,6 +4,8 @@ Página única en `artifact/index.html`, publicada como Artifact de Claude con b
 
 **Dashboard** (mes en curso): KPIs de realización, cumplimiento a la fecha y hechas a tiempo; vencidas, hoy y siguiente día hábil; barras por responsable/proceso/empresa; lateral por estado; resumen ejecutivo con IA (`sample`, se guarda en `config/resumen`). La fecha real de cierre se guarda en `est[fecha].h` al marcar Hecha.
 
+**Procesos**: `+ Nuevo proceso` (pestaña Procesos) crea el proceso y lo asigna a todas las empresas o solo a las elegidas, con periodicidad, fecha de inicio opcional y responsable. Ya no existe la creación de tareas sueltas; las tareas `manual` existentes siguen funcionando.
+
 **Recurrencia** (fecha elegida → regla → instancias): semanal = mismo día de la semana; quincenal = cada 14 días;
 mensual = mismo día del mes (mes corto usa su último día); trimestral = cada 3 meses; anual; única.
 

@@ -109,6 +109,8 @@ th[aria-sort="ascending"] button.sort,th[aria-sort="descending"] button.sort{col
 .ai{white-space:pre-wrap;line-height:1.55;margin:8px 0;overflow-wrap:anywhere}
 .aibar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .warn{color:var(--warn)}
+.chk{display:flex;flex-direction:row;align-items:center;gap:8px;padding:4px 2px;font-size:13px;color:var(--ink)}
+.chklist{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:5px;padding:4px 8px}
 </style>
 
 <header>
@@ -119,7 +121,6 @@ th[aria-sort="ascending"] button.sort,th[aria-sort="descending"] button.sort{col
     <button type="button" data-v="empresas" id="nav-empresas">Empresas</button>
     <button type="button" data-v="procesos" id="nav-procesos">Procesos</button>
   </nav>
-  <button type="button" class="pri" id="btnNueva">+ Nueva tarea</button>
   <span class="sp"></span>
   <span class="live" id="live">conectando…</span>
 </header>
@@ -193,7 +194,7 @@ function ruleText(per,anc){
 }
 
 /* ---------- estado ---------- */
-const S={emp:[],cat:[],seq:[],sort:{k:"",dir:1},sortE:{k:"",dir:1},view:"dashboard",dsec:{venc:true,curso:true,pend:false,bloq:false,hecha:false},ai:{busy:false,text:"",err:""},resumen:null,sample:null,mes:today.slice(0,7),q:"",dirty:false,showPend:false,
+const S={emp:[],cat:[],seq:[],sort:{k:"",dir:1},sortE:{k:"",dir:1},armDel:null,view:"dashboard",dsec:{venc:true,curso:true,pend:false,bloq:false,hecha:false},ai:{busy:false,text:"",err:""},resumen:null,sample:null,mes:today.slice(0,7),q:"",dirty:false,showPend:false,
   f:{empresa:"",resp:"",proceso:"",per:"",estado:"",ocultar:false,agrupar:true},
   ready:{emp:false,cat:false,seq:false,res:false},canWrite:true,db:null,fail:""};
 const perOf=(q,a)=>q.origen==="manual"?q.per:a?.per;
@@ -293,7 +294,7 @@ function vTablero(){
   }
   const pend=pendientes().filter(p=>(!f.empresa||p.e.id===f.empresa)&&(!f.proceso||p.c.id===f.proceso)&&(!f.per||p.a.per===f.per)&&(!f.resp||p.a.resp===f.resp));
   const body=loading()?`<tr><td colspan="9" class="empty">Cargando tareas…</td></tr>`
-    :all.length===0?`<tr><td colspan="9" class="empty">No hay tareas en ${MESES[m-1]} ${y}. Crea una con “+ Nueva tarea” o asigna fecha de inicio a los procesos de cada empresa.</td></tr>`
+    :all.length===0?`<tr><td colspan="9" class="empty">No hay tareas en ${MESES[m-1]} ${y}. Asigna fecha de inicio a los procesos de cada empresa (pestaña Procesos).</td></tr>`
     :ts.length===0?`<tr><td colspan="9" class="empty">Ninguna tarea coincide con los filtros.</td></tr>`:rows;
   const pendHTML=!loading()&&pend.length?`<div class="pend"><button type="button" data-pend="1" id="btnPend">${pend.length} procesos sin fecha de inicio ${S.showPend?"▴":"▾"}</button>
     ${S.showPend?`<div class="tbl" style="margin-top:8px"><table style="min-width:600px"><thead><tr><th>Empresa</th><th>Proceso</th><th>Periodicidad</th><th>Fecha de inicio</th></tr></thead><tbody>
@@ -337,11 +338,12 @@ function vProcesos(){
   const rows=S.cat.map(c=>{
     const uso=S.emp.filter(e=>e.estado==="Activo"&&(e.procesos||[]).some(a=>a.p===c.id&&a.per!==NA)).length, np=pend.filter(p=>p.c.id===c.id).length;
     return `<tr><td><b>${esc(c.nombre)}</b></td><td>${uso}</td><td>${np}</td>
-      <td><div class="dayc"><input type="date" id="ap-${esc(c.id)}" aria-label="Fecha de inicio para ${esc(c.nombre)}"${dis()}><button type="button" data-apply="${esc(c.id)}"${np&&S.canWrite?"":" disabled"}>Aplicar a ${np} empresas</button></div></td></tr>`}).join("");
-  return `<div class="bar"><h2>Procesos</h2></div>
-  <p class="note" style="padding-inline:0">Para arrancar rápido: elige una fecha de inicio por proceso y aplícala a todas las empresas que aún no la tienen. Cada empresa toma su propia periodicidad (semanal = ese día de la semana, quincenal = cada 14 días, mensual = ese día del mes). Después ajusta tarea por tarea desde el tablero.</p>
-  <div class="tbl"><table style="min-width:640px"><thead><tr><th>Proceso</th><th>Empresas activas</th><th>Sin fecha de inicio</th><th>Fecha de inicio</th></tr></thead>
-  <tbody>${loading()?`<tr><td colspan="4" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>`;
+      <td><div class="dayc"><input type="date" id="ap-${esc(c.id)}" aria-label="Fecha de inicio para ${esc(c.nombre)}"${dis()}><button type="button" data-apply="${esc(c.id)}"${np&&S.canWrite?"":" disabled"}>Aplicar a ${np} empresas</button></div></td>
+      <td style="text-align:right"><button type="button" class="bad${S.armDel===c.id?" armed":""}" data-delp="${esc(c.id)}" id="dp-${esc(c.id)}"${dis()}>${S.armDel===c.id?`¿Seguro? Se borran ${S.seq.filter(q=>q.proceso===c.id).length} secuencias`:"Eliminar"}</button></td></tr>`}).join("");
+  return `<div class="bar"><h2>Procesos (${S.cat.length})</h2><span class="sp"></span><button type="button" class="pri" data-newp="1" id="new-proc"${dis()}>+ Nuevo proceso</button></div>
+  <p class="note" style="padding-inline:0">Para arrancar rápido: elige una fecha de inicio por proceso y aplícala a todas las empresas que aún no la tienen. Con “+ Nuevo proceso” puedes crear otro y decidir si va a todas las empresas o solo a las que elijas. Cada empresa toma su propia periodicidad (semanal = ese día de la semana, quincenal = cada 14 días, mensual = ese día del mes). Después ajusta tarea por tarea desde el tablero.</p>
+  <div class="tbl"><table style="min-width:760px"><thead><tr><th>Proceso</th><th>Empresas activas</th><th>Sin fecha de inicio</th><th>Fecha de inicio</th><th></th></tr></thead>
+  <tbody>${loading()?`<tr><td colspan="5" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>`;
 }
 
 
@@ -408,7 +410,7 @@ Reglas: máximo 170 palabras; texto plano sin markdown ni viñetas; cuatro párr
 function vDashboard(){
   if(loading()) return `<div class="empty">Cargando dashboard…</div>`;
   const d=dashData(), [y,m]=d.mes.split("-").map(Number), c=d.cnt;
-  if(!d.total) return `<div class="bar"><h2>Dashboard · ${MESES[m-1]} ${y}</h2></div><div class="panel empty">No hay tareas en ${MESES[m-1]} ${y}. Asigna fecha de inicio a los procesos (pestaña Procesos) o crea una tarea con “+ Nueva tarea”.</div>`;
+  if(!d.total) return `<div class="bar"><h2>Dashboard · ${MESES[m-1]} ${y}</h2></div><div class="panel empty">No hay tareas en ${MESES[m-1]} ${y}. Asigna fecha de inicio a los procesos (pestaña Procesos).</div>`;
   const legend=`<div class="legend">${CLSO.map(k=>`<span><i class="sw s-${k}"></i>${CLSL[k]}</span>`).join("")}</div>`;
   const kp=(v,l,sub)=>`<div class="kpi"><b>${v}</b><span>${l}</span>${sub?`<div class="kp">${sub}</div>`:""}</div>`;
   const pc=v=>v==null?"—":v+"%";
@@ -494,36 +496,60 @@ function editEmpresa(id){
   dlg.showModal();
 }
 
-/* ---------- nueva tarea ---------- */
-function nuevaTarea(){
-  const dlg=$("#dlg");
-  dlg.innerHTML=`<h2>Nueva tarea</h2>
+/* ---------- nuevo proceso (catálogo) ---------- */
+function nuevoProceso(){
+  const dlg=$("#dlg"), es=S.emp.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  dlg.innerHTML=`<h2>Nuevo proceso</h2>
   <div class="grid">
-    <label style="grid-column:1/-1">Nombre de la tarea *<input id="nt-nombre" autocomplete="off"></label>
-    <label>Empresa *<select id="nt-empresa"><option value="">Selecciona una empresa…</option>${empOpts("")}</select></label>
-    <label>Proceso<select id="nt-proceso"><option value="">— Sin proceso —</option>${S.cat.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join("")}</select></label>
-    <label>Periodicidad *<select id="nt-per">${opts([...PER,UNICA],"Semanal")}</select></label>
-    <label>Fecha de inicio *<input type="date" id="nt-fecha" value="${today}"></label>
-    <label>Responsable<input id="nt-resp" list="dl-resp" autocomplete="off"></label></div>
-  <p class="note" id="nt-prev" style="padding:0"></p>
-  <div class="acts"><button type="button" id="cancel">Cancelar</button><button type="button" class="pri" id="ok"${dis()}>Crear tarea</button></div>`;
+    <label style="grid-column:1/-1">Nombre del proceso *<input id="np-nombre" autocomplete="off"></label>
+    <label>Periodicidad *<select id="np-per">${opts(PER,"Mensual")}</select></label>
+    <label>Fecha de inicio<input type="date" id="np-fecha"></label>
+    <label>Responsable<input id="np-resp" list="dl-resp" autocomplete="off"></label></div>
+  <h2 style="font-size:14px">¿A qué empresas se aplica?</h2>
+  <label class="chk"><input type="radio" name="np-alc" id="np-todas" checked> Todas las empresas (${es.length})</label>
+  <label class="chk"><input type="radio" name="np-alc" id="np-sel"> Solo las que seleccione</label>
+  <div id="np-box" hidden>
+    <div class="bar" style="margin:6px 0"><input id="np-q" placeholder="Buscar empresa…" aria-label="Buscar empresa"><button type="button" id="np-all">Marcar visibles</button><button type="button" id="np-none">Ninguna</button></div>
+    <div class="chklist">${es.map(e=>`<label class="chk" data-name="${esc(e.nombre.toLowerCase())}"><input type="checkbox" data-np="${esc(e.id)}"> ${esc(e.nombre)}${e.grupo?` <span class="mut">· ${esc(e.grupo)}</span>`:""}</label>`).join("")}</div></div>
+  <p class="note" id="np-prev" style="padding:8px 0 0"></p>
+  <div class="acts"><button type="button" id="cancel">Cancelar</button><button type="button" class="pri" id="ok"${dis()}>Crear proceso</button></div>`;
+  const ids=()=>$("#np-todas",dlg).checked?es.map(e=>e.id):[...dlg.querySelectorAll("[data-np]:checked")].map(x=>x.dataset.np);
   const prev=()=>{
-    const f=$("#nt-fecha").value, per=$("#nt-per").value;
-    $("#nt-prev").textContent=validISO(f)?`Se repetirá ${ruleText(per,f)}: ${gen(per,f,f,addDays(f,800)).slice(0,4).map(fmtFull).join(" · ")}${per===UNICA?"":" …"}`:"Elige la fecha de inicio.";
+    $("#np-box",dlg).hidden=$("#np-todas",dlg).checked;
+    const n=ids().length, per=$("#np-per",dlg).value, f=$("#np-fecha",dlg).value;
+    $("#np-prev",dlg).textContent=`Se agregará a ${n} ${n===1?"empresa":"empresas"} con periodicidad ${per.toLowerCase()}. `+(validISO(f)?`Regla: ${ruleText(per,f)}, desde ${fmtFull(f)}.`:"Sin fecha de inicio: quedará en «procesos sin fecha de inicio» hasta que la elijas.");
   };
   dlg.oninput=dlg.onchange=prev; prev();
+  $("#np-q",dlg).oninput=ev=>{const q=ev.target.value.toLowerCase();dlg.querySelectorAll(".chklist .chk").forEach(l=>l.hidden=!l.dataset.name.includes(q))};
+  $("#np-all",dlg).onclick=()=>{dlg.querySelectorAll(".chklist .chk:not([hidden]) input").forEach(x=>x.checked=true);prev()};
+  $("#np-none",dlg).onclick=()=>{dlg.querySelectorAll("[data-np]").forEach(x=>x.checked=false);prev()};
   $("#cancel",dlg).onclick=()=>dlg.close();
   $("#ok",dlg).onclick=()=>{
-    const nombre=$("#nt-nombre").value.trim(), empresa=$("#nt-empresa").value, per=$("#nt-per").value, fecha=$("#nt-fecha").value;
-    if(!nombre) return toast("Escribe el nombre de la tarea.");
-    if(!empresa) return toast("Selecciona la empresa de la tarea.");
-    if(!validISO(fecha)) return toast("Elige la fecha de inicio.");
-    const o={origen:"manual",nombre,empresa,proceso:$("#nt-proceso").value,per,tramos:[{desde:fecha,ancla:fecha}],creada:today};
-    const r=$("#nt-resp").value.trim(); if(r) o.resp=r;
-    crearSecuencia("t"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),o);
-    S.mes=fecha.slice(0,7); dlg.close(); toast("Tarea creada."); render(true);
+    const nombre=$("#np-nombre",dlg).value.trim(), per=$("#np-per",dlg).value, fecha=$("#np-fecha",dlg).value, resp=$("#np-resp",dlg).value.trim(), sel=ids();
+    if(!nombre) return toast("Escribe el nombre del proceso.");
+    if(S.cat.some(c=>c.nombre.toLowerCase()===nombre.toLowerCase())) return toast("Ya existe un proceso con ese nombre.");
+    if(!sel.length) return toast("Selecciona al menos una empresa.");
+    const pid="p"+Date.now().toString(36);
+    enqueue(async()=>{
+      await S.db.doc("config/catalogo").set({items:[...S.cat,{id:pid,nombre}]});
+      for(const id of sel){
+        const e=S.emp.find(x=>x.id===id); if(!e) continue;
+        const a={p:pid,per}; if(resp) a.resp=resp;
+        await S.db.doc("empresas/"+id).update({procesos:[...(e.procesos||[]),a]});
+        if(validISO(fecha)) await S.db.doc(`secuencias/${id}_${pid}`).set(seqDoc({origen:"proceso",empresa:id,proceso:pid,tramos:[{desde:fecha,ancla:fecha}]}));
+      }
+      toast(`Proceso «${nombre}» creado en ${sel.length} ${sel.length===1?"empresa":"empresas"}.`);
+    });
+    dlg.close();
   };
   dlg.showModal();
+}
+function eliminarProceso(pid){
+  enqueue(async()=>{
+    await S.db.doc("config/catalogo").set({items:S.cat.filter(x=>x.id!==pid)});
+    for(const e of S.emp) if((e.procesos||[]).some(a=>a.p===pid)) await S.db.doc("empresas/"+e.id).update({procesos:e.procesos.filter(a=>a.p!==pid)});
+    for(const q of S.seq) if(q.proceso===pid) await S.db.doc("secuencias/"+q.id).delete();
+  });
 }
 
 /* ---------- cambio de fecha: solo este día / toda la secuencia ---------- */
@@ -588,12 +614,10 @@ function render(force){
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===S.view));
   const ro=S.canWrite?"":`<div class="ro">Solo lectura: tu acceso no permite editar. Pide permiso de Colaborador al dueño.</div>`;
   $("#app").innerHTML=shell(ro+{dashboard:vDashboard,tablero:vTablero,empresas:vEmpresas,procesos:vProcesos}[S.view]());
-  $("#btnNueva").disabled=!S.canWrite||S.fail!==""||loading();
   setResp();
 }
 document.addEventListener("focusout",()=>{if(S.dirty)setTimeout(()=>render(),0)});
 $("#nav").onclick=e=>{if(e.target.dataset.v){S.view=e.target.dataset.v;render(true)}};
-$("#btnNueva").onclick=()=>nuevaTarea();
 
 const patchEst=(sid,occ,patch)=>{ if(S.db) enqueue(()=>S.db.doc("secuencias/"+sid).update({est:{[occ]:patch}})) };
 function aplicarFecha(pid,fecha){
@@ -617,7 +641,10 @@ app.addEventListener("input",e=>{
 });
 app.addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
-  if(b.dataset.dsec){S.dsec[b.dataset.dsec]=!S.dsec[b.dataset.dsec];render(true)}
+  if(S.armDel&&!b.dataset.delp) S.armDel=null;
+  if(b.dataset.newp) nuevoProceso();
+  else if(b.dataset.delp){ if(S.armDel!==b.dataset.delp){S.armDel=b.dataset.delp;render(true)} else {eliminarProceso(b.dataset.delp);S.armDel=null;render(true)} }
+  else if(b.dataset.dsec){S.dsec[b.dataset.dsec]=!S.dsec[b.dataset.dsec];render(true)}
   else if(b.dataset.ai==="gen") generarResumen();
   else if(b.dataset.ai==="stop") S.ai.ctl?.abort();
   else if(b.dataset.goven){S.f={...S.f,estado:"Vencidas",empresa:"",resp:"",proceso:"",per:""};S.mes=today.slice(0,7);S.view="tablero";render(true)}
