@@ -190,7 +190,7 @@ function ruleText(per,anc){
 }
 
 /* ---------- estado ---------- */
-const S={emp:[],cat:[],seq:[],sort:{k:"",dir:1},sortE:{k:"",dir:1},armDel:null,view:"dashboard",dsec:{venc:true,curso:true,pend:false,bloq:false,hecha:false},ai:{busy:false,text:"",err:""},resumen:null,sample:null,mes:today.slice(0,7),q:"",dirty:false,showPend:false,
+const S={emp:[],cat:[],seq:[],sort:{k:"",dir:1},sortE:{k:"",dir:1},armDel:null,armSeq:null,view:"dashboard",dsec:{venc:true,curso:true,pend:false,bloq:false,hecha:false},ai:{busy:false,text:"",err:""},resumen:null,sample:null,mes:today.slice(0,7),q:"",dirty:false,showPend:false,
   f:{empresa:"",resp:"",proceso:"",per:"",estado:"",ocultar:false,agrupar:true},
   ready:{emp:false,cat:false,seq:false,res:false},canWrite:true,db:null,fail:""};
 const perOf=(q,a)=>q.origen==="manual"?q.per:a?.per;
@@ -257,7 +257,7 @@ function dayCtl(t){
 function vTablero(){
   const all=tareas(), f=S.f, [y,m]=S.mes.split("-").map(Number);
   const resps=uniq(all.map(t=>t.resp));
-  const ts=all.filter(t=>(!f.empresa||t.q.empresa===f.empresa)&&(!f.proceso||t.q.proceso===f.proceso)&&(!f.per||t.per===f.per)
+  const ts=all.filter(t=>(!f.empresa||(f.empresa==="_none"?!t.q.empresa:t.q.empresa===f.empresa))&&(!f.proceso||t.q.proceso===f.proceso)&&(!f.per||t.per===f.per)
     &&(!f.resp||t.resp===f.resp)&&(!f.estado||(f.estado==="Vencidas"?t.late:t.estado===f.estado))&&!(f.ocultar&&t.estado==="Hecha"));
   const cnt=s=>all.filter(t=>t.estado===s).length, late=all.filter(t=>t.late).length;
   const pct=all.length?Math.round(cnt("Hecha")/all.length*100):0;
@@ -306,7 +306,7 @@ function vTablero(){
     <div class="kpi"><b style="color:${late?"var(--bad)":"inherit"}">${late}</b><span>Vencidas</span></div></div>
   ${pendHTML}
   <div class="bar">
-    <select data-f="empresa" id="flt-empresa" aria-label="Empresa"><option value="">Todas las empresas</option>${empOpts(f.empresa)}</select>
+    <select data-f="empresa" id="flt-empresa" aria-label="Empresa"><option value="">Todas las empresas</option><option value="_none"${f.empresa==="_none"?" selected":""}>Sin empresa</option>${empOpts(f.empresa)}</select>
     <select data-f="resp" id="flt-resp" aria-label="Responsable">${opts(resps,f.resp,"Todos los responsables")}</select>
     <select data-f="proceso" id="flt-proceso" aria-label="Proceso"><option value="">Todos los procesos</option>${S.cat.map(c=>`<option value="${esc(c.id)}"${f.proceso===c.id?" selected":""}>${esc(c.nombre)}</option>`).join("")}</select>
     <select data-f="per" id="flt-per" aria-label="Periodicidad">${opts([...PER,UNICA],f.per,"Toda periodicidad")}</select>
@@ -336,10 +336,21 @@ function vProcesos(){
     return `<tr><td><b>${esc(c.nombre)}</b></td><td>${uso}</td><td>${np}</td>
       <td><div class="dayc"><input type="date" id="ap-${esc(c.id)}" aria-label="Fecha de inicio para ${esc(c.nombre)}"${dis()}><button type="button" data-apply="${esc(c.id)}"${np&&S.canWrite?"":" disabled"}>Aplicar a ${np} empresas</button></div></td>
       <td style="text-align:right"><button type="button" class="bad${S.armDel===c.id?" armed":""}" data-delp="${esc(c.id)}" id="dp-${esc(c.id)}"${dis()}>${S.armDel===c.id?`¿Seguro? Se borran ${S.seq.filter(q=>q.proceso===c.id).length} secuencias`:"Eliminar"}</button></td></tr>`}).join("");
-  return `<div class="bar"><h2>Procesos (${S.cat.length})</h2><span class="sp"></span><button type="button" class="pri" data-newp="1" id="new-proc"${dis()}>+ Nuevo proceso</button></div>
+  return `<div class="bar"><h2>Procesos (${S.cat.length})</h2><span class="sp"></span><button type="button" class="pri" data-newp="1" id="new-proc"${dis()}>+ Nuevo proceso</button><button type="button" class="pri" data-newt="1" id="new-task"${dis()}>+ Agregar tarea</button></div>
   <p class="note" style="padding-inline:0">Para arrancar rápido: elige una fecha de inicio por proceso y aplícala a todas las empresas que aún no la tienen. Con “+ Nuevo proceso” puedes crear otro y decidir si va a todas las empresas o solo a las que elijas. Cada empresa toma su propia periodicidad (semanal = ese día de la semana, quincenal = cada 14 días, mensual = ese día del mes). Después ajusta tarea por tarea desde el tablero.</p>
   <div class="tbl"><table style="min-width:760px"><thead><tr><th>Proceso</th><th>Empresas activas</th><th>Sin fecha de inicio</th><th>Fecha de inicio</th><th></th></tr></thead>
-  <tbody>${loading()?`<tr><td colspan="5" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>`;
+  <tbody>${loading()?`<tr><td colspan="5" class="empty">Cargando…</td></tr>`:rows}</tbody></table></div>
+  ${tareasSueltas()}`;
+}
+function tareasSueltas(){
+  const ts=S.seq.filter(q=>q.origen==="manual").sort((a,b)=>tramosOf(a)[0].ancla.localeCompare(tramosOf(b)[0].ancla));
+  if(loading()) return "";
+  const rows=ts.map(q=>{const e=S.emp.find(x=>x.id===q.empresa), per=q.per||UNICA, a0=tramosOf(q)[0].ancla;
+    return `<tr><td>${esc(q.nombre)}</td><td>${esc(e?.nombre||"Sin empresa")}</td><td>${esc(q.resp||"—")}</td><td class="mut">${esc(ruleText(per,a0))}</td><td class="mono">${fmtFull(a0)}</td>
+      <td style="text-align:right"><button type="button" class="bad${S.armSeq===q.id?" armed":""}" data-delt="${esc(q.id)}" id="dt-${esc(q.id)}"${dis()}>${S.armSeq===q.id?"¿Seguro? Confirmar":"Eliminar"}</button></td></tr>`}).join("");
+  return `<div class="bar" style="margin-top:18px"><h2>Tareas agregadas (${ts.length})</h2></div>
+  <div class="tbl"><table style="min-width:700px"><thead><tr><th>Tarea</th><th>Empresa</th><th>Responsable</th><th>Se repite</th><th>Desde</th><th></th></tr></thead>
+  <tbody>${rows||`<tr><td colspan="6" class="empty">Aún no hay tareas agregadas. Usa “+ Agregar tarea” para tareas que no pertenecen a un proceso.</td></tr>`}</tbody></table></div>`;
 }
 
 
@@ -548,6 +559,37 @@ function eliminarProceso(pid){
   });
 }
 
+/* ---------- agregar tarea (empresa opcional) ---------- */
+function nuevaTarea(){
+  const dlg=$("#dlg"), es=S.emp.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  dlg.innerHTML=`<h2>Agregar tarea</h2>
+  <div class="grid">
+    <label style="grid-column:1/-1">Nombre de la tarea *<input id="nt-nombre" autocomplete="off"></label>
+    <label>Responsable *<input id="nt-resp" list="dl-resp" autocomplete="off"></label>
+    <label>Fecha a realizar *<input type="date" id="nt-fecha" value="${today}"></label>
+    <label>Empresa (opcional)<select id="nt-empresa"><option value="">— Sin empresa —</option>${es.map(e=>`<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join("")}</select></label>
+    <label>Se repite<select id="nt-per"><option value="${UNICA}" selected>Única (no se repite)</option>${PER.map(x=>`<option>${x}</option>`).join("")}</select></label></div>
+  <p class="note" id="nt-prev" style="padding:0"></p>
+  <div class="acts"><button type="button" id="cancel">Cancelar</button><button type="button" class="pri" id="ok"${dis()}>Agregar tarea</button></div>`;
+  const prev=()=>{
+    const f=$("#nt-fecha",dlg).value, per=$("#nt-per",dlg).value;
+    $("#nt-prev",dlg).textContent=!validISO(f)?"Elige la fecha a realizar.":per===UNICA?`Se hará el ${fmtDue(f)} (${fmtFull(f)}). Ese día es su inicio y su vencimiento.`
+      :`Se repetirá ${ruleText(per,f)}: ${gen(per,f,f,addDays(f,800)).slice(0,4).map(fmtFull).join(" · ")} …`;
+  };
+  dlg.oninput=dlg.onchange=prev; prev();
+  $("#cancel",dlg).onclick=()=>dlg.close();
+  $("#ok",dlg).onclick=()=>{
+    const nombre=$("#nt-nombre",dlg).value.trim(), resp=$("#nt-resp",dlg).value.trim(), fecha=$("#nt-fecha",dlg).value, per=$("#nt-per",dlg).value;
+    if(!nombre) return toast("Escribe el nombre de la tarea.");
+    if(!resp) return toast("Indica el responsable.");
+    if(!validISO(fecha)) return toast("Elige la fecha a realizar.");
+    crearSecuencia("t"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
+      {origen:"manual",nombre,empresa:$("#nt-empresa",dlg).value,proceso:"",per,resp,tramos:[{desde:fecha,ancla:fecha}],creada:today});
+    S.mes=fecha.slice(0,7); dlg.close(); toast(`Tarea agregada para el ${fmtFull(fecha)}. La verás en el Tablero y el Dashboard.`);
+  };
+  dlg.showModal();
+}
+
 /* ---------- cambio de fecha: solo este día / toda la secuencia ---------- */
 function moveSolo(q,occ,nd){ enqueue(()=>S.db.doc("secuencias/"+q.id).update({ex:{[occ]:{d:nd}}})); }
 function moveToda(q,per,occ,nd){
@@ -638,7 +680,10 @@ app.addEventListener("input",e=>{
 app.addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
   if(S.armDel&&!b.dataset.delp) S.armDel=null;
-  if(b.dataset.newp) nuevoProceso();
+  if(S.armSeq&&!b.dataset.delt) S.armSeq=null;
+  if(b.dataset.newt) nuevaTarea();
+  else if(b.dataset.delt){ if(S.armSeq!==b.dataset.delt){S.armSeq=b.dataset.delt;render(true)} else {const id=b.dataset.delt;S.armSeq=null;enqueue(()=>S.db.doc("secuencias/"+id).delete());render(true)} }
+  else if(b.dataset.newp) nuevoProceso();
   else if(b.dataset.delp){ if(S.armDel!==b.dataset.delp){S.armDel=b.dataset.delp;render(true)} else {eliminarProceso(b.dataset.delp);S.armDel=null;render(true)} }
   else if(b.dataset.dsec){S.dsec[b.dataset.dsec]=!S.dsec[b.dataset.dsec];render(true)}
   else if(b.dataset.ai==="gen") generarResumen();
